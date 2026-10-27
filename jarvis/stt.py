@@ -31,12 +31,17 @@ def get_model(size=DEFAULT_MODEL):
 
 def transcribe(path, size=DEFAULT_MODEL, prompt=None):
     """Return (text, seconds). Seconds covers transcription only, not model loading."""
-    model = get_model(size)
     # Decode the WAV ourselves: faster-whisper's own file decoding goes through
     # PyAV, whose newest versions break it.
     samples, rate = load_wav(path)
     if rate != SAMPLE_RATE:
         raise ValueError(f"{path}: expected {SAMPLE_RATE} Hz audio, got {rate} Hz")
+    return transcribe_samples(samples, size, prompt)
+
+
+def transcribe_samples(samples, size=DEFAULT_MODEL, prompt=None):
+    """Like transcribe(), for 16 kHz mono float32 samples already in memory."""
+    model = get_model(size)
     start = time.perf_counter()
     segments, _info = model.transcribe(
         samples, language=LANGUAGE, initial_prompt=prompt

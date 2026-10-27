@@ -17,7 +17,36 @@ def build_parser():
     tr.add_argument("files", nargs="*", help="WAV files")
     tr.add_argument("--model", default="small", help="Whisper model size (default: small)")
     tr.add_argument("--compare", action="store_true", help="compare small vs medium")
+    ls = sub.add_parser("listen", help="loop: hold F9, speak, run the matching preset")
+    ls.add_argument("--model", default="small", help="Whisper model size (default: small)")
+    ls.add_argument(
+        "--threshold", type=float, default=70, help="minimum match score 0-100 (default: 70)"
+    )
     return parser
+
+
+def cmd_listen(args, presets):
+    from jarvis import audio, stt
+    from jarvis.log import log_command
+    from jarvis.matcher import match
+
+    prompt = stt.build_prompt(presets)
+    print("loading model...")
+    stt.get_model(args.model)
+    print("Ready. Hold F9 and speak. Ctrl+C to quit.")
+    try:
+        while True:
+            samples = audio.record_clip()
+            text, secs = stt.transcribe_samples(samples, args.model, prompt)
+            name, score = match(text, presets, args.threshold)
+            log_command(text, name, score, secs)
+            if name is None:
+                print(f"ไม่เข้าใจ  (heard {text!r}, score {score:.0f})")
+                continue
+            print(f"{name}  (heard {text!r}, score {score:.0f}, {secs:.1f}s)")
+            run_preset(presets, name)
+    except KeyboardInterrupt:
+        print("\nbye")
 
 
 def cmd_transcribe(args, presets):
@@ -53,6 +82,8 @@ def main(argv=None):
             return 1 if run_preset(presets, args.name) else 0
         elif args.command == "transcribe":
             cmd_transcribe(args, presets)
+        elif args.command == "listen":
+            cmd_listen(args, presets)
         elif args.command == "record":
             from jarvis import audio
 

@@ -4,14 +4,18 @@
     "reply": "เปิดโหมดเกมแล้ว",
     "actions": [
       { "type": "run", "path": "%LocalAppData%\\Discord\\Update.exe", "args": ["--processStart", "Discord.exe"] },
-      { "type": "uri", "target": "roblox:" },
       { "type": "wait", "seconds": 3 },
-      { "type": "chrome", "urls": ["https://www.roblox.com/home", "https://www.instagram.com"] }
+      { "type": "chrome", "urls": ["https://www.roblox.com/home", "https://www.instagram.com", "https://www.youtube.com"] }
     ]
   },
   "work": {
-    "phrases": ["เปิดโหมดทำงาน"],
+    "phrases": ["เปิดโหมดทำงาน", "โหมดทำงาน"],
     "reply": "เปิดโหมดทำงานแล้ว",
-    "actions": []
+    "actions": [
+      { "type": "run", "path": "%LocalAppData%\\Discord\\Update.exe", "args": ["--processStart", "Discord.exe"] },
+      { "type": "run", "path": "%LocalAppData%\\Programs\\Antigravity\\Antigravity IDE.exe" },
+      { "type": "wait", "seconds": 3 },
+      { "type": "chrome", "urls": ["https://claude.ai", "https://www.github.com/XANAX1990/", "https://www.youtube.com"] }
+    ]
   }
 }

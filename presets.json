@@ -1,0 +1,17 @@
+{
+  "game": {
+    "phrases": ["เปิดโหมดเกม", "โหมดเล่นเกม"],
+    "reply": "เปิดโหมดเกมแล้ว",
+    "actions": [
+      { "type": "run", "path": "%LocalAppData%\\Discord\\Update.exe", "args": ["--processStart", "Discord.exe"] },
+      { "type": "uri", "target": "roblox:" },
+      { "type": "wait", "seconds": 3 },
+      { "type": "chrome", "urls": ["https://www.roblox.com/home", "https://www.instagram.com"] }
+    ]
+  },
+  "work": {
+    "phrases": ["เปิดโหมดทำงาน"],
+    "reply": "เปิดโหมดทำงานแล้ว",
+    "actions": []
+  }
+}

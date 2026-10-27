@@ -1,6 +1,6 @@
 {
   "game": {
-    "phrases": ["เปิดโหมดเกม", "โหมดเล่นเกม"],
+    "phrases": ["เปิดโหมดเกม", "โหมดเล่นเกม", "โหมดเกม"],
     "reply": "เปิดโหมดเกมแล้ว",
     "actions": [
       { "type": "run", "path": "%LocalAppData%\\Discord\\Update.exe", "args": ["--processStart", "Discord.exe"] },
@@ -9,7 +9,7 @@
     ]
   },
   "work": {
-    "phrases": ["เปิดโหมดทำงาน", "โหมดทำงาน"],
+    "phrases": ["เปิดโหมดทำงาน", "โหมดทำงาน", "โหมดงาน"],
     "reply": "เปิดโหมดทำงานแล้ว",
     "actions": [
       { "type": "run", "path": "%LocalAppData%\\Discord\\Update.exe", "args": ["--processStart", "Discord.exe"] },

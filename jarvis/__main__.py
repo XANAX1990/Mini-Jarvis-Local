@@ -17,6 +17,8 @@ def build_parser():
     tr.add_argument("files", nargs="*", help="WAV files")
     tr.add_argument("--model", default="small", help="Whisper model size (default: small)")
     tr.add_argument("--compare", action="store_true", help="compare small vs medium")
+    say = sub.add_parser("say", help="speak a sentence with the Piper voice (or beep)")
+    say.add_argument("text")
     ls = sub.add_parser("listen", help="loop: hold F9, speak, run the matching preset")
     ls.add_argument("--model", default="small", help="Whisper model size (default: small)")
     ls.add_argument(
@@ -29,10 +31,13 @@ def cmd_listen(args, presets):
     from jarvis import audio, stt
     from jarvis.log import log_command
     from jarvis.matcher import match
+    from jarvis.tts import NO_MATCH_REPLY, Speaker
 
     prompt = stt.build_prompt(presets)
-    print("loading model...")
+    speaker = Speaker()
+    print("loading models...")
     stt.get_model(args.model)
+    speaker.warm()
     print("Ready. Hold F9 and speak. Ctrl+C to quit.")
     try:
         while True:
@@ -42,8 +47,10 @@ def cmd_listen(args, presets):
             log_command(text, name, score, secs)
             if name is None:
                 print(f"ไม่เข้าใจ  (heard {text!r}, score {score:.0f})")
+                speaker.speak(NO_MATCH_REPLY)
                 continue
             print(f"{name}  (heard {text!r}, score {score:.0f}, {secs:.1f}s)")
+            speaker.speak(presets[name]["reply"])  # before the preset: it may wait/sleep
             run_preset(presets, name)
     except KeyboardInterrupt:
         print("\nbye")
@@ -82,6 +89,12 @@ def main(argv=None):
             return 1 if run_preset(presets, args.name) else 0
         elif args.command == "transcribe":
             cmd_transcribe(args, presets)
+        elif args.command == "say":
+            from jarvis.tts import Speaker
+
+            speaker = Speaker()
+            speaker.speak(args.text)
+            speaker.wait()
         elif args.command == "listen":
             cmd_listen(args, presets)
         elif args.command == "record":

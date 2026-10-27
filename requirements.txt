@@ -3,4 +3,5 @@ sounddevice
 keyboard
 faster-whisper
 rapidfuzz
+piper-tts
 pytest

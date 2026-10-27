@@ -1,4 +1,5 @@
 numpy
 sounddevice
 keyboard
+faster-whisper
 pytest

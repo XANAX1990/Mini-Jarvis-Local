@@ -1,5 +1,6 @@
 import argparse
 import sys
+import time
 
 from jarvis.audio import AudioError
 from jarvis.presets import PresetError, load_presets, run_preset
@@ -12,7 +13,30 @@ def build_parser():
     run = sub.add_parser("run", help="run a preset by name")
     run.add_argument("name")
     sub.add_parser("record", help="hold F9 to record; saves logs/last.wav")
+    tr = sub.add_parser("transcribe", help="transcribe WAV files (default: logs/last.wav)")
+    tr.add_argument("files", nargs="*", help="WAV files")
+    tr.add_argument("--model", default="small", help="Whisper model size (default: small)")
+    tr.add_argument("--compare", action="store_true", help="compare small vs medium")
     return parser
+
+
+def cmd_transcribe(args, presets):
+    from jarvis import audio, stt
+
+    files = args.files or [str(audio.LAST_WAV)]
+    prompt = stt.build_prompt(presets)
+    sizes = ["small", "medium"] if args.compare else [args.model]
+    for size in sizes:
+        print(f"== model: {size} (first use downloads it) ==")
+        t0 = time.perf_counter()
+        stt.get_model(size)
+        print(f"loaded in {time.perf_counter() - t0:.1f}s")
+        total = 0.0
+        for f in files:
+            text, secs = stt.transcribe(f, size, prompt)
+            total += secs
+            print(f"{f}: {text!r}  ({secs:.1f}s)")
+        print(f"average {total / len(files):.1f}s per clip")
 
 
 def main(argv=None):
@@ -27,6 +51,8 @@ def main(argv=None):
                 print(f"{name}: {', '.join(preset['phrases'])}")
         elif args.command == "run":
             return 1 if run_preset(presets, args.name) else 0
+        elif args.command == "transcribe":
+            cmd_transcribe(args, presets)
         elif args.command == "record":
             from jarvis import audio
 

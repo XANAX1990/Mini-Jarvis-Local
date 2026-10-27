@@ -1,6 +1,7 @@
 import argparse
 import sys
 
+from jarvis.audio import AudioError
 from jarvis.presets import PresetError, load_presets, run_preset
 
 
@@ -10,6 +11,7 @@ def build_parser():
     sub.add_parser("list", help="list available presets")
     run = sub.add_parser("run", help="run a preset by name")
     run.add_argument("name")
+    sub.add_parser("record", help="hold F9 to record; saves logs/last.wav")
     return parser
 
 
@@ -25,7 +27,17 @@ def main(argv=None):
                 print(f"{name}: {', '.join(preset['phrases'])}")
         elif args.command == "run":
             return 1 if run_preset(presets, args.name) else 0
-    except PresetError as e:
+        elif args.command == "record":
+            from jarvis import audio
+
+            print("Hold F9 and speak, release to stop...")
+            samples = audio.record_clip()
+            audio.save_wav(audio.LAST_WAV, samples)
+            print(
+                f"saved {audio.LAST_WAV} - "
+                f"{audio.duration_seconds(samples):.2f}s, peak {audio.peak_level(samples):.2f}"
+            )
+    except (PresetError, AudioError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
     return 0

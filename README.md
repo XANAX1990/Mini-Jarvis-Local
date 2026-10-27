@@ -2,7 +2,7 @@
 
 A small, fully local voice launcher for my Windows PC. I hold a key, say "เปิดโหมดเกม", and it opens my game setup (Discord, Chrome tabs, Roblox), then tells me it's done. No cloud, no account, and it runs on an old GTX 1060 3GB.
 
-> **Status:** in development. See [`PLAN.md`](./PLAN.md) for the roadmap and current progress.
+> **Status:** all six phases are built. Spoken replies need a Piper voice file in `voices/`, and autostart is opt-in (`python -m jarvis autostart install`). See [`PLAN.md`](./PLAN.md) for the roadmap.
 
 ---
 
@@ -25,12 +25,12 @@ hold F9 → record mic → Whisper (local) → text
 
 | Feature | Status |
 |---|---|
-| Run presets from the command line (`python -m jarvis run game`) | ⏳ Planned |
-| Push-to-talk recording (hold F9) | ⏳ Planned |
-| Thai speech-to-text with faster-whisper (local) | ⏳ Planned |
-| Fuzzy matching of speech to presets | ⏳ Planned |
-| Spoken reply with Piper (Thai voice) | ⏳ Planned |
-| Start automatically when I log in | ⏳ Planned |
+| Run presets from the command line (`python -m jarvis run game`) | ✅ Done |
+| Push-to-talk recording (hold F9) | ✅ Done |
+| Thai speech-to-text with faster-whisper (local; optional GPU) | ✅ Done |
+| Fuzzy matching of speech to presets | ✅ Done |
+| Spoken reply with Piper (Thai voice) | 🟡 Built, needs a voice file; beeps without one |
+| Start automatically when I log in | 🟡 Built, not yet tried across a real login |
 
 ## Presets
 
@@ -76,17 +76,46 @@ python -m jarvis listen
 
 The first run of `listen` downloads the Whisper model (a few hundred MB).
 
+### Commands
+
+| Command | What it does |
+|---|---|
+| `list` | Show presets and their trigger phrases |
+| `run <name>` | Run a preset without voice |
+| `record` | Hold F9, save `logs/last.wav`, print duration and peak level |
+| `transcribe [files] [--model small] [--compare]` | Speech-to-text on WAV files, with timings |
+| `say "<text>"` | Speak a sentence with the Piper voice (beeps if none) |
+| `listen [--device cuda] [--threshold 70]` | The full loop: hold F9, speak, run the matching preset |
+| `autostart install\|remove\|status` | Start `listen` at login (shortcut in the Startup folder) |
+
+### Spoken replies
+
+Download a Thai Piper voice (`.onnx` plus the `.onnx.json` with the same name) into `voices/`. Without one, Jarvis plays a short beep instead.
+
+### GPU (optional)
+
+`python -m jarvis listen --device cuda` tries the GPU (int8). If the CUDA libraries are missing it falls back to the CPU and says so in the output.
+
+### Start at login
+
+```bat
+python -m jarvis autostart install
+```
+
+This puts a shortcut in your Startup folder that runs `listen` with `pythonw` (no console window); output goes to `logs\listen.log`. It is a shortcut and not a Windows Service, because services can't open apps on your desktop. Undo with `autostart remove`.
+
 ## Project structure
 
 ```
 jarvis/
-├─ __main__.py      # CLI: list | run <preset> | listen
+├─ __main__.py      # CLI: list | run | record | transcribe | say | listen | autostart
 ├─ presets.py       # load + validate presets.json, run actions
 ├─ audio.py         # push-to-talk recording
 ├─ stt.py           # faster-whisper wrapper
 ├─ matcher.py       # transcript → preset (pure, tested)
 ├─ tts.py           # Piper wrapper
-└─ log.py           # JSONL log of transcript, match, score
+├─ log.py           # JSONL log of transcript, match, score
+└─ autostart.py     # Startup-folder shortcut
 presets.json
 voices/             # Piper voice files (.onnx + .onnx.json), not committed
 logs/               # not committed

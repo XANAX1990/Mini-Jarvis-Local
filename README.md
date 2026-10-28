@@ -2,7 +2,7 @@
 
 A small, fully local voice launcher for my Windows PC. I hold a key, say "เปิดโหมดเกม", and it opens my game setup (Discord, Chrome tabs, Roblox), then tells me it's done. No cloud, no account, and it runs on an old GTX 1060 3GB.
 
-> **Status:** all six phases are built. Spoken replies need a Piper voice file in `voices/`, and autostart is opt-in (`python -m jarvis autostart install`). See [`PLAN.md`](./PLAN.md) for the roadmap.
+> **Status:** all six phases are built. The Piper voice file is not in the repo (see [Spoken replies](#spoken-replies)), and autostart is opt-in (`python -m jarvis autostart install`). Only the README demo GIF is still to do. See [`PLAN.md`](./PLAN.md) for the roadmap.
 
 ---
 
@@ -29,8 +29,8 @@ hold F9 → record mic → Whisper (local) → text
 | Push-to-talk recording (hold F9) | ✅ Done |
 | Thai speech-to-text with faster-whisper (local; optional GPU) | ✅ Done |
 | Fuzzy matching of speech to presets | ✅ Done |
-| Spoken reply with Piper (Thai voice) | 🟡 Built, needs a voice file; beeps without one |
-| Start automatically when I log in | 🟡 Built, not yet tried across a real login |
+| Spoken reply with Piper (Thai voice) | ✅ Done (beeps if no voice file is present) |
+| Start automatically when I log in | ✅ Done (shortcut tested; not yet through a full log-out/in) |
 
 ## Presets
 
@@ -92,6 +92,8 @@ The first run of `listen` downloads the Whisper model (a few hundred MB).
 
 Download a Thai Piper voice (`.onnx` plus the `.onnx.json` with the same name) into `voices/`. Without one, Jarvis plays a short beep instead.
 
+`voices/` is not pushed to GitHub: the model files are large and carry their own license.
+
 ### GPU (optional)
 
 `python -m jarvis listen --device cuda` tries the GPU (int8). If the CUDA libraries are missing it falls back to the CPU and says so in the output.
@@ -115,12 +117,17 @@ jarvis/
 ├─ matcher.py       # transcript → preset (pure, tested)
 ├─ tts.py           # Piper wrapper
 ├─ log.py           # JSONL log of transcript, match, score
-└─ autostart.py     # Startup-folder shortcut
+├─ autostart.py     # Startup-folder shortcut
+└─ single.py        # one `listen` at a time (named mutex)
 presets.json
 voices/             # Piper voice files (.onnx + .onnx.json), not committed
 logs/               # not committed
 tests/
 ```
+
+## Credits
+
+- Thai voice: tranhuyluyen/piper-voices-thai (CC-BY-NC-4.0), non-commercial use only.
 
 ## License
 

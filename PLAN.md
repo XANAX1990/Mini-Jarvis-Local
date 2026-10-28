@@ -15,54 +15,54 @@
 
 ## Phase 1: Project + preset runner (no voice)
 
-- [ ] Project layout as in README, `requirements.txt`, `.gitignore` (`.venv/`, `voices/`, `logs/`, `models/`)
-- [ ] `presets.json` with 2 presets: `game` (Discord, Roblox, Chrome with roblox.com + instagram) and `work` (TODO: ask me)
-- [ ] Validate presets on load (unknown action type, missing fields → clear error)
-- [ ] Actions: `run` (expand `%VARS%`, `subprocess.Popen([path, *args])`), `open` (`os.startfile`), `uri` (`os.startfile`), `chrome` (`--new-window` + URLs), `wait`
-- [ ] CLI: `python -m jarvis list`, `python -m jarvis run <name>`
-- [ ] Tests: preset validation, unknown preset name
+- [x] Project layout as in README, `requirements.txt`, `.gitignore` (`.venv/`, `voices/`, `logs/`, `models/`)
+- [x] `presets.json` with 2 presets: `game` (Discord, Roblox, Chrome with roblox.com + instagram) and `work` (TODO: ask me)
+- [x] Validate presets on load (unknown action type, missing fields → clear error)
+- [x] Actions: `run` (expand `%VARS%`, `subprocess.Popen([path, *args])`), `open` (`os.startfile`), `uri` (`os.startfile`), `chrome` (`--new-window` + URLs), `wait`
+- [x] CLI: `python -m jarvis list`, `python -m jarvis run <name>`
+- [x] Tests: preset validation, unknown preset name
 
 **Verify:** `python -m jarvis run game` opens Discord, Roblox and a Chrome window in front.
 
 ## Phase 2: Push-to-talk recording
 
-- [ ] `audio.py`: hold **F9** to record from the default mic, release to stop; 16 kHz mono; ignore clips under 0.3 s
-- [ ] `python -m jarvis record` saves `logs/last.wav` and prints duration + peak level
-- [ ] Clear error if no microphone is found
+- [x] `audio.py`: hold **F9** to record from the default mic, release to stop; 16 kHz mono; ignore clips under 0.3 s
+- [x] `python -m jarvis record` saves `logs/last.wav` and prints duration + peak level
+- [x] Clear error if no microphone is found
 
 **Verify:** record "เปิดโหมดเกม", play `logs/last.wav`, voice is clear.
 
 ## Phase 3: Speech-to-text (CPU)
 
-- [ ] `stt.py`: faster-whisper, `device="cpu"`, `compute_type="int8"`, `language="th"`, model loaded **once** and reused
-- [ ] Pass the preset phrases as `initial_prompt` so Whisper leans toward my command words
-- [ ] `python -m jarvis transcribe logs/last.wav` prints text + seconds taken
-- [ ] Model size configurable (`small` default); print a comparison of `small` vs `medium` on the same 5 recordings
+- [x] `stt.py`: faster-whisper, `device="cpu"`, `compute_type="int8"`, `language="th"`, model loaded **once** and reused
+- [x] Pass the preset phrases as `initial_prompt` so Whisper leans toward my command words
+- [x] `python -m jarvis transcribe logs/last.wav` prints text + seconds taken
+- [x] Model size configurable (`small` default); print a comparison of `small` vs `medium` on the same 5 recordings
 
 **Verify:** 5 recordings of my commands; I check how many come out readable and how long each takes.
 
 ## Phase 4: Matching + the full loop
 
-- [ ] `matcher.py`: normalize (lowercase, remove spaces/punctuation, Thai has no word spaces), score each preset phrase with `rapidfuzz.fuzz.partial_ratio`, return best preset + score
-- [ ] Threshold (start at 70, configurable): below it → no match
-- [ ] Tests: exact phrase, phrase with a typo, unrelated sentence → no match
-- [ ] `python -m jarvis listen`: loop forever — hold F9 → record → transcribe → match → run preset (or print "ไม่เข้าใจ")
-- [ ] `log.py`: append one JSON line per command: time, transcript, preset, score, seconds
+- [x] `matcher.py`: normalize (lowercase, remove spaces/punctuation, Thai has no word spaces), score each preset phrase with `rapidfuzz.fuzz.partial_ratio`, return best preset + score
+- [x] Threshold (start at 70, configurable): below it → no match
+- [x] Tests: exact phrase, phrase with a typo, unrelated sentence → no match
+- [x] `python -m jarvis listen`: loop forever — hold F9 → record → transcribe → match → run preset (or print "ไม่เข้าใจ")
+- [x] `log.py`: append one JSON line per command: time, transcript, preset, score, seconds
 
 **Verify:** say each preset's phrase 5 times; it runs the right one; random speech runs nothing.
 
 ## Phase 5: Spoken reply
 
-- [ ] `tts.py`: Piper with a Thai voice from `voices/` (I'll download the `.onnx` + `.onnx.json`); speak the preset's `reply`, or "ไม่เข้าใจ" on no match
-- [ ] If no voice file is found → play a short system beep instead (don't crash)
-- [ ] Speaking must not block the next command for long (run it in a thread)
+- [x] `tts.py`: Piper with a Thai voice from `voices/` (I'll download the `.onnx` + `.onnx.json`); speak the preset's `reply`, or "ไม่เข้าใจ" on no match
+- [x] If no voice file is found → play a short system beep instead (don't crash)
+- [x] Speaking must not block the next command for long (run it in a thread)
 
 **Verify:** "เปิดโหมดเกม" → apps open and I hear "เปิดโหมดเกมแล้ว".
 
 ## Phase 6: Daily use
 
-- [ ] Autostart: a shortcut in the user's **Startup folder** that runs `listen` with `pythonw` (no console window). Not a Windows Service: services can't open apps on my desktop.
-- [ ] Optional GPU: try `device="cuda"`, `compute_type="int8"` (GTX 1060 is compute 6.1); if CUDA libs are missing, fall back to CPU automatically and say so in the log
+- [x] Autostart: a shortcut in the user's **Startup folder** that runs `listen` with `pythonw` (no console window). Not a Windows Service: services can't open apps on my desktop.
+- [x] Optional GPU: try `device="cuda"`, `compute_type="int8"` (GTX 1060 is compute 6.1); if CUDA libs are missing, fall back to CPU automatically and say so in the log
 - [ ] README: tick features, add a short demo GIF
 
 **Verify:** log out and in → Jarvis is listening without me starting it.

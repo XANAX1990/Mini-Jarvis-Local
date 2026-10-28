@@ -44,6 +44,29 @@ def test_unrelated_sentence_no_match():
     assert score < DEFAULT_THRESHOLD
 
 
+def test_recited_prompt_with_phrases_of_two_presets_is_rejected():
+    # What Whisper produced on non-speech: it recited the prompt phrases.
+    name, score = match("โหมดเล่นเกม โหมดทำงาน โหมดทำงาน", PRESETS)
+    assert name is None
+    assert score == 100  # would have matched without the rule
+
+
+def test_one_preset_phrase_repeated_still_matches():
+    assert match("โหมดทำงาน โหมดทำงาน", PRESETS)[0] == "work"
+
+
+def test_real_commands_still_win_though_presets_share_a_word():
+    # "โหมด" is shared by both presets, so the runner-up scores ~84; must still win.
+    for text, expected in [
+        ("เปิดโหมดเกม", "game"),
+        ("เปิดโหมดทำงาน", "work"),
+        ("เปิดโหมดเกน", "game"),
+        ("นีโน เปิดโหมดเล่นเกม", "game"),
+        ("นีโน เปิดโหมดทำงาน", "work"),
+    ]:
+        assert match(text, PRESETS)[0] == expected
+
+
 def test_empty_transcript_no_match():
     assert match("", PRESETS) == (None, 0.0)
     assert match("  ... ", PRESETS) == (None, 0.0)

@@ -61,8 +61,13 @@ def redirect_output_if_windowless():
 def cmd_listen(args, presets):
     from jarvis import audio, stt
     from jarvis.log import log_command
+    from jarvis import single
     from jarvis.matcher import match
     from jarvis.tts import NO_MATCH_REPLY, Speaker
+
+    if single.acquire() is None:
+        print("Jarvis is already running - not starting a second copy.")
+        return 1
 
     prompt = stt.build_prompt(presets)
     speaker = Speaker()
@@ -130,7 +135,7 @@ def main(argv=None):
             speaker.speak(args.text)
             speaker.wait()
         elif args.command == "listen":
-            cmd_listen(args, presets)
+            return cmd_listen(args, presets) or 0
         elif args.command == "record":
             from jarvis import audio
 

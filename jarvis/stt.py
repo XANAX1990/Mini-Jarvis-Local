@@ -66,8 +66,11 @@ def transcribe_samples(samples, size=DEFAULT_MODEL, prompt=None, device=DEFAULT_
     """Like transcribe(), for 16 kHz mono float32 samples already in memory."""
     model = get_model(size, device)
     start = time.perf_counter()
+    # vad_filter drops silence/noise before decoding. Without it Whisper tends to
+    # recite the initial_prompt on non-speech, e.g. "โหมดทำงาน โหมด", which would
+    # match a preset and launch it.
     segments, _info = model.transcribe(
-        samples, language=LANGUAGE, initial_prompt=prompt
+        samples, language=LANGUAGE, initial_prompt=prompt, vad_filter=True
     )
     text = "".join(s.text for s in segments).strip()  # generator: decoding happens here
     return text, time.perf_counter() - start

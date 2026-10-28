@@ -2,7 +2,9 @@
 
 A small, fully local voice launcher for my Windows PC. I hold a key, say "เปิดโหมดเกม", and it opens my game setup (Discord, Chrome tabs, Roblox), then tells me it's done. No cloud, no account, and it runs on an old GTX 1060 3GB.
 
-> **Status:** all six phases are built. The Piper voice file is not in the repo (see [Spoken replies](#spoken-replies)), and autostart is opt-in (`python -m jarvis autostart install`). Only the README demo GIF is still to do. See [`PLAN.md`](./PLAN.md) for the roadmap.
+> **Status:** all six phases are built. The Piper voice file is not in the repo (see [Spoken replies](#spoken-replies)), and autostart is opt-in (`python -m jarvis autostart install`). See [`PLAN.md`](./PLAN.md) for the roadmap.
+
+![Jarvis demo: `say`, then `listen` matching "เปิดโหมดเกม" to the game preset and ignoring a clip that is too short](GIF/Mini-Jarvis%20GIF.gif)
 
 ---
 

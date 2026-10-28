@@ -63,7 +63,7 @@
 
 - [x] Autostart: a shortcut in the user's **Startup folder** that runs `listen` with `pythonw` (no console window). Not a Windows Service: services can't open apps on my desktop.
 - [x] Optional GPU: try `device="cuda"`, `compute_type="int8"` (GTX 1060 is compute 6.1); if CUDA libs are missing, fall back to CPU automatically and say so in the log
-- [ ] README: tick features, add a short demo GIF
+- [x] README: tick features, add a short demo GIF
 
 **Verify:** log out and in → Jarvis is listening without me starting it.
 

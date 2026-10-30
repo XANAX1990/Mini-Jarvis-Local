@@ -9,6 +9,7 @@ from rapidfuzz import fuzz
 DEFAULT_THRESHOLD = 70
 MIN_THRESHOLD = 50  # the CLI refuses anything lower: below this Jarvis would be guessing a preset
 MIN_COVERAGE = 0.6  # transcript must be at least this fraction of the phrase's length
+MIN_MARGIN = 3  # the best preset must beat every other preset by this many points, else it is a guess
 
 def normalize(text):
     """Lowercase and keep only letters, digits and combining marks.
@@ -52,5 +53,18 @@ def match(transcript, presets, threshold=DEFAULT_THRESHOLD):
         if any(normalize(p) in heard for p in preset["phrases"])
     ]
     if len(named) > 1:
+        return None, best_score
+    # Phrases that differ in one word ("วันนี้ / อาทิตย์นี้ / เดือนนี้ จ่ายไปเท่าไร") score close to each
+    # other, so a transcript that only fits the shared part, or one that two presets nearly tie on,
+    # is not a command: say "ไม่เข้าใจ" instead of answering for the wrong period.
+    fragment_of = {
+        name
+        for name, preset in presets.items()
+        if any(heard != normalize(p) and heard in normalize(p) for p in preset["phrases"])
+    }
+    if len(fragment_of) > 1:
+        return None, best_score
+    runner_up = max((v for n, v in scores.items() if n != best_name), default=0.0)
+    if best_score - runner_up < MIN_MARGIN:
         return None, best_score
     return best_name, best_score

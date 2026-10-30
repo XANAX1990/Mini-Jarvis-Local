@@ -18,6 +18,16 @@
       { "type": "chrome", "urls": ["https://claude.ai", "https://www.github.com/XANAX1990/", "https://www.youtube.com"] }
     ]
   },
+  "spending-today": {
+    "phrases": ["วันนี้จ่ายไปเท่าไร", "วันนี้ใช้ไปเท่าไร"],
+    "reply": "เช็กยอดให้แล้ว",
+    "actions": [{ "type": "spending", "period": "today" }]
+  },
+  "spending-week": {
+    "phrases": ["อาทิตย์นี้จ่ายไปเท่าไร", "อาทิตย์นี้ใช้ไปเท่าไร", "สัปดาห์นี้จ่ายไปเท่าไร", "สัปดาห์นี้ใช้ไปเท่าไร"],
+    "reply": "เช็กยอดให้แล้ว",
+    "actions": [{ "type": "spending", "period": "week" }]
+  },
   "spending-month": {
     "phrases": ["เดือนนี้จ่ายไปเท่าไร", "เดือนนี้ใช้ไปเท่าไร"],
     "reply": "เช็กยอดให้แล้ว",

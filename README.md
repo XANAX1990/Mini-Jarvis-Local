@@ -33,6 +33,7 @@ hold F9 → record mic → Whisper (local) → text
 | Fuzzy matching of speech to presets | ✅ Done |
 | Spoken reply with Piper (Thai voice) | ✅ Done (beeps if no voice file is present) |
 | Start automatically when I log in | ✅ Done (shortcut tested; not yet through a full log-out/in) |
+| Ask "วันนี้ / อาทิตย์นี้ / เดือนนี้จ่ายไปเท่าไร" and hear the total from Slip Tracker (read only, on this PC) | ✅ Done |
 
 ## Presets
 
@@ -89,6 +90,10 @@ The first run of `listen` downloads the Whisper model (a few hundred MB) from Hu
 | `say "<text>"` | Speak a sentence with the Piper voice (beeps if none) |
 | `listen [--device cuda] [--threshold 70]` | The full loop: hold F9, speak, run the matching preset |
 | `autostart install\|remove\|status` | Start `listen` at login (shortcut in the Startup folder) |
+
+### Ask how much you spent
+
+Say "เดือนนี้จ่ายไปเท่าไร" (also วันนี้ and อาทิตย์นี้) and Jarvis reads the total from the Slip Tracker API on this PC and says it in Thai, with the numbers as words. It only reads: Jarvis never changes anything in Slip Tracker. Setup: copy `.env.example` to `.env` and put Slip Tracker's `SLIPS_API_TOKEN` in it (the URL must be `127.0.0.1` or `localhost`; the token is never sent anywhere else). Start Slip Tracker first, or Jarvis answers "ระบบสลิปยังไม่เปิด". The plan is in `PLAN-spending.md`.
 
 ### Spoken replies
 

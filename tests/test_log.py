@@ -10,6 +10,7 @@ from jarvis.log import (
     RETENTION_DAYS,
     TimestampedWriter,
     log_command,
+    prune_command_files,
     prune_commands,
     prune_text_log,
 )
@@ -100,10 +101,36 @@ def test_no_temp_files_left_behind(tmp_path):
     assert [f.name for f in tmp_path.iterdir()] == ["commands.jsonl"]
 
 
+# ---- logs/commands/: one file per command ----
+
+def test_file_is_named_by_local_time(tmp_path):
+    entry = log_command("x", None, 0, 1, directory=tmp_path, now=NOW)
+    assert entry["file"].name == "2026-10-30_12-00-00.json"
+
+
+def test_same_second_never_overwrites(tmp_path):
+    names = {log_command(str(i), None, 0, 1, directory=tmp_path, now=NOW)["file"].name for i in range(3)}
+    assert names == {"2026-10-30_12-00-00.json", "2026-10-30_12-00-00-2.json", "2026-10-30_12-00-00-3.json"}
+    assert len(list(tmp_path.glob("*.json"))) == 3
+
+
+def test_command_files_older_than_thirty_days_are_deleted(tmp_path):
+    for days in (31, 29, 0):
+        log_command("x", None, 0, 1, directory=tmp_path, now=NOW - timedelta(days=days))
+    assert prune_command_files(tmp_path, now=NOW) == 1
+    assert len(list(tmp_path.glob("*.json"))) == 2
+
+
+def test_command_prune_ignores_files_that_are_not_ours(tmp_path):
+    (tmp_path / "notes.json").write_text("{}", encoding="utf-8")
+    assert prune_command_files(tmp_path, now=NOW) == 0
+    assert (tmp_path / "notes.json").exists()
+    assert prune_command_files(tmp_path / "missing", now=NOW) == 0
+
+
 def test_logging_then_pruning_with_real_clock(tmp_path):
-    p = tmp_path / "commands.jsonl"
-    log_command("เปิดโหมดเกม", "game", 100.0, 2.0, path=p)
-    assert prune_commands(p) == 0  # an entry written just now is not old
+    log_command("เปิดโหมดเกม", "game", 100.0, 2.0, directory=tmp_path)
+    assert prune_command_files(tmp_path) == 0  # a file written just now is not old
 
 
 # ---- listen.log ----

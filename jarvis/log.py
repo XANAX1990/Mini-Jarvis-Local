@@ -1,8 +1,11 @@
-"""Append one JSON line per command to logs/commands.jsonl, and keep logs for a limited time.
+"""Write one JSON file per command into logs/commands/, and keep logs for a limited time.
+
+Every utterance gets its own file, named by local time: logs/commands/2026-10-31_14-02-33.json.
 
 Transcripts are what people said near the microphone, so they are not kept for ever:
-`prune_commands()` (when `listen` starts) and `prune_text_log()` (before listen.log is opened) drop
-everything older than RETENTION_DAYS from logs/commands.jsonl and logs/listen.log. logs/ is never committed (see .gitignore).
+`prune_command_files()` and `prune_commands()` (when `listen` starts) and `prune_text_log()` (before
+listen.log is opened) drop everything older than RETENTION_DAYS from logs/commands/, the old
+logs/commands.jsonl and logs/listen.log. logs/ is never committed (see .gitignore).
 """
 import json
 import os
@@ -14,19 +17,55 @@ LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "commands.jsonl"
 RETENTION_DAYS = 30
 
 
-def log_command(transcript, preset, score, seconds, path=LOG_PATH):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+COMMANDS_DIR = LOG_PATH.parent / "commands"
+_FILE_STAMP = "%Y-%m-%d_%H-%M-%S"
+
+
+def log_command(transcript, preset, score, seconds, directory=COMMANDS_DIR, now=None):
+    """Write this command to its own file in `directory`. Returns the entry (with its file path)."""
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    moment = now or datetime.now().astimezone()
     entry = {
-        "time": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "time": moment.isoformat(timespec="seconds"),
         "transcript": transcript,
         "preset": preset,
         "score": round(score, 1),
         "seconds": round(seconds, 2),
     }
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    return entry
+    stem = moment.strftime(_FILE_STAMP)
+    for n in range(1, 1000):  # two commands in the same second: -2, -3, ... never overwrite
+        path = directory / (f"{stem}.json" if n == 1 else f"{stem}-{n}.json")
+        try:
+            with open(path, "x", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False, indent=2) + "\n")
+            break
+        except FileExistsError:
+            continue
+    else:
+        raise OSError(f"could not find a free log file name for {stem}")
+    return {**entry, "file": path}
+
+
+def prune_command_files(directory=COMMANDS_DIR, days=RETENTION_DAYS, now=None):
+    """Delete per-command files older than `days`. Returns how many.
+
+    Age comes from the file name (local time). A file whose name is not one of ours is left alone.
+    """
+    directory = Path(directory)
+    if not directory.is_dir():
+        return 0
+    cutoff = _aware(now or datetime.now().astimezone()) - timedelta(days=days)
+    removed = 0
+    for path in directory.glob("*.json"):
+        try:
+            when = _aware(datetime.strptime(path.stem[:19], _FILE_STAMP))
+        except ValueError:
+            continue
+        if when < cutoff:
+            path.unlink(missing_ok=True)
+            removed += 1
+    return removed
 
 
 # ---- listen.log: stdout/stderr of the window-less `pythonw` process, one timestamp per line ----

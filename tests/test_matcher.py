@@ -82,13 +82,14 @@ def test_threshold_is_configurable():
     assert match(transcript, PRESETS, threshold=0)[0] == "game"
 
 
-def test_log_writes_one_json_line_per_command(tmp_path):
-    path = tmp_path / "logs" / "commands.jsonl"
-    log_command("เปิดโหมดเกม", "game", 100.0, 2.345, path=path)
-    log_command("ไม่รู้เรื่อง", None, 41.23, 1.0, path=path)
-    lines = path.read_text(encoding="utf-8").splitlines()
-    assert len(lines) == 2
-    first, second = (json.loads(line) for line in lines)
+def test_log_writes_one_file_per_command(tmp_path):
+    d = tmp_path / "logs" / "commands"
+    a = log_command("เปิดโหมดเกม", "game", 100.0, 2.345, directory=d)
+    b = log_command("ไม่รู้เรื่อง", None, 41.23, 1.0, directory=d)
+    assert a["file"] != b["file"]
+    assert len(list(d.glob("*.json"))) == 2
+    first = json.loads(a["file"].read_text(encoding="utf-8"))
+    second = json.loads(b["file"].read_text(encoding="utf-8"))
     assert first["transcript"] == "เปิดโหมดเกม"
     assert first["preset"] == "game"
     assert first["score"] == 100.0

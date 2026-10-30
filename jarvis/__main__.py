@@ -83,7 +83,7 @@ def redirect_output_if_windowless():
 
 def cmd_listen(args, presets):
     from jarvis import audio, stt
-    from jarvis.log import RETENTION_DAYS, log_command, prune_commands
+    from jarvis.log import RETENTION_DAYS, log_command, prune_command_files, prune_commands
     from jarvis import single
     from jarvis.matcher import match
     from jarvis.tts import NO_MATCH_REPLY, Speaker
@@ -92,9 +92,9 @@ def cmd_listen(args, presets):
         print("Jarvis is already running - not starting a second copy.")
         return 1
 
-    removed = prune_commands()  # transcripts are kept for a limited time only
+    removed = prune_command_files() + prune_commands()  # transcripts are kept for a limited time only
     if removed:
-        print(f"removed {removed} log entries older than {RETENTION_DAYS} days")
+        print(f"removed {removed} log entries/files older than {RETENTION_DAYS} days")
     prompt = stt.build_prompt(presets)
     speaker = Speaker()
     print("loading models...")

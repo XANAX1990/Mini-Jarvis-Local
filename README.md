@@ -76,7 +76,7 @@ python -m jarvis run game
 python -m jarvis listen
 ```
 
-The first run of `listen` downloads the Whisper model (a few hundred MB).
+The first run of `listen` downloads the Whisper model (a few hundred MB) from Hugging Face: `Systran/faster-whisper-small` (MIT licence), which is what `faster-whisper` 1.2.1 uses for `small`. The revision checked on 2026-10-30 was `536b0662742c02347bc0e980a01041f333bce120` (last changed 2023-11-23); `WhisperModel` takes a `revision` argument if you ever want to pin it.
 
 ### Commands
 
@@ -130,6 +130,7 @@ tests/
 ## Credits
 
 - Thai voice: tranhuyluyen/piper-voices-thai (CC-BY-NC-4.0), non-commercial use only.
+- Speech-to-text: Systran/faster-whisper-small (MIT), run with faster-whisper 1.2.1.
 
 ## License
 

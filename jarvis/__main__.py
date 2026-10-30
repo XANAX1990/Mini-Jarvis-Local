@@ -50,17 +50,22 @@ def cmd_autostart(args):
 def redirect_output_if_windowless():
     """pythonw has no console (sys.stdout is None): send output to logs/listen.log."""
     if sys.stdout is None or sys.stderr is None:
-        from jarvis.log import LOG_PATH
+        from jarvis.log import LOG_PATH, TimestampedWriter, prune_text_log
 
         LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        f = open(LOG_PATH.with_name("listen.log"), "a", encoding="utf-8", buffering=1)
+        listen_log = LOG_PATH.with_name("listen.log")
+        try:
+            prune_text_log(listen_log)  # before opening it: Windows cannot replace an open file
+        except OSError:
+            pass  # another Jarvis still holds it open; it is pruned the next time
+        f = TimestampedWriter(open(listen_log, "a", encoding="utf-8", buffering=1))
         sys.stdout = sys.stdout or f
         sys.stderr = sys.stderr or f
 
 
 def cmd_listen(args, presets):
     from jarvis import audio, stt
-    from jarvis.log import log_command
+    from jarvis.log import RETENTION_DAYS, log_command, prune_commands
     from jarvis import single
     from jarvis.matcher import match
     from jarvis.tts import NO_MATCH_REPLY, Speaker
@@ -69,6 +74,9 @@ def cmd_listen(args, presets):
         print("Jarvis is already running - not starting a second copy.")
         return 1
 
+    removed = prune_commands()  # transcripts are kept for a limited time only
+    if removed:
+        print(f"removed {removed} log entries older than {RETENTION_DAYS} days")
     prompt = stt.build_prompt(presets)
     speaker = Speaker()
     print("loading models...")

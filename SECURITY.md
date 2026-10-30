@@ -15,6 +15,7 @@ Security rules and audit checklist for Jarvis (local Python voice launcher on Wi
 1. **Microphone audio**: my voice, but also people nearby, videos, games and calls
 2. `presets.json`
 3. Downloaded model files (Whisper, Piper voices)
+4. The Slip Tracker API's answer (`spending` presets: read only, JSON from `127.0.0.1`)
 
 ## Project rules
 
@@ -25,10 +26,11 @@ Security rules and audit checklist for Jarvis (local Python voice launcher on Wi
 - [ ] Jarvis runs as my normal user, never as administrator. Autostart uses the Startup folder, not a service or a scheduled task with highest privileges.
 - [ ] `presets.json` is validated on load (known action types only, required fields present). Invalid file → refuse to start with a clear error.
 - [ ] Audio is not kept by default: `last.wav` is overwritten each time. Transcript logs are kept for a limited time (e.g. 30 days) and never committed.
+- [ ] `spending` presets only read from the local Slip Tracker API. `SLIPS_API_URL` must be `127.0.0.1` or `localhost` (the token is never sent elsewhere); the token lives in `.env` (git-ignored), never in `presets.json`, the log or the spoken answer; errors are spoken in one short line, details only in the log.
 - [ ] Models are downloaded only from known repos, versions noted in the README; voice and wake-word licenses noted (non-commercial ones are for personal use only).
 
 ### Files that must never be tracked
-`logs/`, `voices/`, `models/`, `.venv/`, any recorded `.wav`.
+`logs/`, `voices/`, `models/`, `.venv/`, `.env`, any recorded `.wav`.
 
 ## Rules that apply to every project
 

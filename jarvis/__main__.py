@@ -4,7 +4,7 @@ import time
 
 from jarvis.audio import AudioError
 from jarvis.matcher import DEFAULT_THRESHOLD, MIN_THRESHOLD
-from jarvis.presets import PresetError, load_presets, run_preset
+from jarvis.presets import PresetError, get_preset, load_presets, run_preset, spending_period, spoken_reply
 
 
 def threshold_arg(text):
@@ -112,7 +112,7 @@ def cmd_listen(args, presets):
                 speaker.speak(NO_MATCH_REPLY)
                 continue
             print(f"{name}  (heard {text!r}, score {score:.0f}, {secs:.1f}s)")
-            speaker.speak(presets[name]["reply"])  # before the preset: it may wait/sleep
+            speaker.speak(spoken_reply(presets[name]))  # before the preset: it may wait/sleep
             run_preset(presets, name)
     except KeyboardInterrupt:
         print("\nbye")
@@ -149,6 +149,14 @@ def main(argv=None):
             for name, preset in presets.items():
                 print(f"{name}: {', '.join(preset['phrases'])}")
         elif args.command == "run":
+            if spending_period(get_preset(presets, args.name)):
+                from jarvis.tts import Speaker
+
+                text = spoken_reply(presets[args.name])  # a question, not an action: say the answer
+                print(text)
+                speaker = Speaker()
+                speaker.speak(text)
+                speaker.wait()
             return 1 if run_preset(presets, args.name) else 0
         elif args.command == "transcribe":
             cmd_transcribe(args, presets)

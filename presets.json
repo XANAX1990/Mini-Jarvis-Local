@@ -17,5 +17,10 @@
       { "type": "wait", "seconds": 3 },
       { "type": "chrome", "urls": ["https://claude.ai", "https://www.github.com/XANAX1990/", "https://www.youtube.com"] }
     ]
+  },
+  "spending-month": {
+    "phrases": ["เดือนนี้จ่ายไปเท่าไร", "เดือนนี้ใช้ไปเท่าไร"],
+    "reply": "เช็กยอดให้แล้ว",
+    "actions": [{ "type": "spending", "period": "month" }]
   }
 }

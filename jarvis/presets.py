@@ -24,6 +24,7 @@ _REQUIRED = {
     "uri": ("target", str),
     "chrome": ("urls", list),
     "wait": ("seconds", (int, float)),
+    "spending": ("period", str),
 }
 
 
@@ -45,6 +46,8 @@ def _validate_action(where, action):
     value = action[field]
     if isinstance(value, bool) or not isinstance(value, expected):
         raise PresetError(f"{where}: '{field}' has the wrong type")
+    if kind == "spending" and value not in ("today", "week", "month"):
+        raise PresetError(f"{where}: 'period' must be today, week or month")
     if kind == "wait" and value < 0:
         raise PresetError(f"{where}: 'seconds' must be >= 0")
     if kind == "chrome":
@@ -115,6 +118,7 @@ def run_action(action):
         subprocess.Popen([_find_chrome(), "--new-window", *action["urls"]])
     elif kind == "wait":
         time.sleep(action["seconds"])
+    # "spending" starts nothing: its answer is spoken instead of the reply (see spoken_reply)
 
 
 def run_preset(presets, name, log=print):
@@ -128,3 +132,22 @@ def run_preset(presets, name, log=print):
             failures += 1
             log(f"action {i} ({action['type']}) failed: {e}")
     return failures
+
+
+def spending_period(preset):
+    """The period of the preset's `spending` action, or None if it has none."""
+    for action in preset["actions"]:
+        if action["type"] == "spending":
+            return action["period"]
+    return None
+
+
+def spoken_reply(preset):
+    """What to say before running the preset: its fixed reply, or the live spending answer."""
+    period = spending_period(preset)
+    if period is None:
+        return preset["reply"]
+    from jarvis import spending
+
+    spending.load_env()
+    return spending.answer(period)

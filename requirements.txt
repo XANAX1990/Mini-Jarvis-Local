@@ -6,4 +6,6 @@ keyboard==0.13.5
 faster-whisper==1.2.1
 RapidFuzz==3.14.6
 piper-tts==1.8.0
+pythainlp==5.4.0
+tzdata==2026.6
 pytest==9.1.1

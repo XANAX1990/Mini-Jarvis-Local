@@ -1,7 +1,11 @@
+import argparse
 import json
 
+import pytest
+
+from jarvis.__main__ import build_parser, threshold_arg
 from jarvis.log import log_command
-from jarvis.matcher import DEFAULT_THRESHOLD, match, normalize
+from jarvis.matcher import DEFAULT_THRESHOLD, MIN_THRESHOLD, match, normalize
 
 PRESETS = {
     "game": {"phrases": ["เปิดโหมดเกม", "โหมดเล่นเกม"]},
@@ -91,3 +95,30 @@ def test_log_writes_one_json_line_per_command(tmp_path):
     assert first["seconds"] == 2.35
     assert second["preset"] is None
     assert {"time", "transcript", "preset", "score", "seconds"} <= set(first)
+
+
+# ---- the command line cannot switch the threshold off (SECURITY.md: never guess a preset) ----
+
+def test_default_threshold_is_unchanged():
+    assert build_parser().parse_args(["listen"]).threshold == DEFAULT_THRESHOLD == 70
+
+
+@pytest.mark.parametrize("value", ["50", "70", "99.5", "100"])
+def test_thresholds_in_range_are_accepted(value):
+    assert build_parser().parse_args(["listen", "--threshold", value]).threshold == float(value)
+
+
+@pytest.mark.parametrize("value", ["0", "-5", "49.9", "30", "100.1", "101", "abc", "", "nan", "inf", "-inf"])
+def test_thresholds_that_would_make_jarvis_guess_are_refused(value, capsys):
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["listen", "--threshold", value])
+    assert "--threshold" in capsys.readouterr().err
+
+
+def test_error_message_explains_the_floor():
+    with pytest.raises(argparse.ArgumentTypeError, match=str(MIN_THRESHOLD)):
+        threshold_arg("10")
+
+
+def test_match_itself_stays_flexible_for_tests_and_tools():
+    assert match("เปิดโหมดเกม", PRESETS, threshold=0)[0] == "game"

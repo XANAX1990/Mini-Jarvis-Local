@@ -7,6 +7,7 @@ import unicodedata
 from rapidfuzz import fuzz
 
 DEFAULT_THRESHOLD = 70
+MIN_THRESHOLD = 50  # the CLI refuses anything lower: below this Jarvis would be guessing a preset
 MIN_COVERAGE = 0.6  # transcript must be at least this fraction of the phrase's length
 
 def normalize(text):

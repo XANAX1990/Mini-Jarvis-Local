@@ -3,7 +3,22 @@ import sys
 import time
 
 from jarvis.audio import AudioError
+from jarvis.matcher import DEFAULT_THRESHOLD, MIN_THRESHOLD
 from jarvis.presets import PresetError, load_presets, run_preset
+
+
+def threshold_arg(text):
+    """SECURITY.md: below the match threshold Jarvis does nothing, it never guesses a preset.
+    A threshold of 0 would turn that off, so the command line refuses anything under the floor."""
+    try:
+        value = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a number") from None
+    if not MIN_THRESHOLD <= value <= 100:  # also rejects nan
+        raise argparse.ArgumentTypeError(
+            f"must be between {MIN_THRESHOLD} and 100 (lower would mean guessing a preset)"
+        )
+    return value
 
 
 def build_parser():
@@ -22,7 +37,10 @@ def build_parser():
     ls = sub.add_parser("listen", help="loop: hold F9, speak, run the matching preset")
     ls.add_argument("--model", default="small", help="Whisper model size (default: small)")
     ls.add_argument(
-        "--threshold", type=float, default=70, help="minimum match score 0-100 (default: 70)"
+        "--threshold",
+        type=threshold_arg,
+        default=DEFAULT_THRESHOLD,
+        help=f"minimum match score {MIN_THRESHOLD}-100 (default: {DEFAULT_THRESHOLD})",
     )
     for p in (tr, ls):
         p.add_argument(

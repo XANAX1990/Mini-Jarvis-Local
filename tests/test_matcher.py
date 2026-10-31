@@ -1,10 +1,8 @@
 import argparse
-import json
 
 import pytest
 
 from jarvis.__main__ import build_parser, threshold_arg
-from jarvis.log import log_command
 from jarvis.matcher import DEFAULT_THRESHOLD, MIN_THRESHOLD, match, normalize
 
 PRESETS = {
@@ -82,26 +80,13 @@ def test_threshold_is_configurable():
     assert match(transcript, PRESETS, threshold=0)[0] == "game"
 
 
-def test_log_writes_one_file_per_command(tmp_path):
-    d = tmp_path / "logs" / "commands"
-    a = log_command("เปิดโหมดเกม", "game", 100.0, 2.345, directory=d)
-    b = log_command("ไม่รู้เรื่อง", None, 41.23, 1.0, directory=d)
-    assert a["file"] != b["file"]
-    assert len(list(d.glob("*.json"))) == 2
-    first = json.loads(a["file"].read_text(encoding="utf-8"))
-    second = json.loads(b["file"].read_text(encoding="utf-8"))
-    assert first["transcript"] == "เปิดโหมดเกม"
-    assert first["preset"] == "game"
-    assert first["score"] == 100.0
-    assert first["seconds"] == 2.35
-    assert second["preset"] is None
-    assert {"time", "transcript", "preset", "score", "seconds"} <= set(first)
-
-
 # ---- the command line cannot switch the threshold off (SECURITY.md: never guess a preset) ----
 
 def test_default_threshold_is_unchanged():
-    assert build_parser().parse_args(["listen"]).threshold == DEFAULT_THRESHOLD == 70
+    from jarvis.settings import Settings
+
+    assert build_parser().parse_args(["listen"]).threshold is None  # then settings.json decides
+    assert Settings().match_threshold == DEFAULT_THRESHOLD == 70
 
 
 @pytest.mark.parametrize("value", ["50", "70", "99.5", "100"])

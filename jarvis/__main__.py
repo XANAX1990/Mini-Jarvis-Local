@@ -1,9 +1,10 @@
 import argparse
 import sys
 import time
+from dataclasses import replace
 
 from jarvis.audio import AudioError
-from jarvis.matcher import DEFAULT_THRESHOLD, MIN_THRESHOLD
+from jarvis.matcher import MIN_THRESHOLD
 from jarvis.presets import PresetError, get_preset, load_presets, run_preset, spending_period, spoken_reply
 
 
@@ -27,20 +28,20 @@ def build_parser():
     sub.add_parser("list", help="list available presets")
     run = sub.add_parser("run", help="run a preset by name")
     run.add_argument("name")
-    sub.add_parser("record", help="hold F9 to record; saves logs/last.wav")
+    sub.add_parser("record", help="record until you stop talking; saves logs/last.wav")
     tr = sub.add_parser("transcribe", help="transcribe WAV files (default: logs/last.wav)")
     tr.add_argument("files", nargs="*", help="WAV files")
     tr.add_argument("--model", default="small", help="Whisper model size (default: small)")
     tr.add_argument("--compare", action="store_true", help="compare small vs medium")
     say = sub.add_parser("say", help="speak a sentence with the Piper voice (or beep)")
     say.add_argument("text")
-    ls = sub.add_parser("listen", help="loop: hold F9, speak, run the matching preset")
+    ls = sub.add_parser("listen", help="tap the hotkey, speak, run the matching preset")
     ls.add_argument("--model", default="small", help="Whisper model size (default: small)")
     ls.add_argument(
         "--threshold",
         type=threshold_arg,
-        default=DEFAULT_THRESHOLD,
-        help=f"minimum match score {MIN_THRESHOLD}-100 (default: {DEFAULT_THRESHOLD})",
+        default=None,
+        help=f"minimum match score {MIN_THRESHOLD}-100 (default: match_threshold in settings.json)",
     )
     for p in (tr, ls):
         p.add_argument(
@@ -82,40 +83,53 @@ def redirect_output_if_windowless():
 
 
 def cmd_listen(args, presets):
-    from jarvis import audio, stt
-    from jarvis.log import RETENTION_DAYS, log_command, prune_command_files, prune_commands
-    from jarvis import single
+    from jarvis import audio, single, stt
+    from jarvis.engine import Engine
+    from jarvis.hotkey import Hotkeys
+    from jarvis.log import RETENTION_DAYS, log_command, prune_command_files, prune_commands, prune_daily_logs
     from jarvis.matcher import match
-    from jarvis.tts import NO_MATCH_REPLY, Speaker
+    from jarvis.settings import load_settings
+    from jarvis.tts import Speaker
 
     if single.acquire() is None:
         print("Jarvis is already running - not starting a second copy.")
         return 1
 
-    removed = prune_command_files() + prune_commands()  # transcripts are kept for a limited time only
+    settings = load_settings()
+    if args.threshold is not None:
+        settings = replace(settings, match_threshold=args.threshold)
+    # transcripts are kept for a limited time only
+    removed = prune_daily_logs() + prune_command_files() + prune_commands()
     if removed:
         print(f"removed {removed} log entries/files older than {RETENTION_DAYS} days")
-    prompt = stt.build_prompt(presets)
     speaker = Speaker()
     print("loading models...")
     stt.get_model(args.model, args.device)
     speaker.warm()
-    print("Ready. Hold F9 and speak. Ctrl+C to quit.")
+    engine = Engine(
+        presets,
+        settings,
+        record=audio.record_until_silence,
+        transcribe=lambda samples, prompt: stt.transcribe_samples(samples, args.model, prompt, args.device),
+        match=match,
+        run_preset=run_preset,
+        spoken_reply=spoken_reply,
+        speak=speaker.speak,
+        beep=audio.beep,
+        log_command=log_command,
+        hotkeys=Hotkeys(),
+        build_prompt=stt.build_prompt,
+    )
+    engine.set_armed(settings.armed_on_start)
+    state = f"tap {settings.hotkey}" if settings.armed_on_start else "switched off (armed_on_start is false)"
+    print(f"Ready: {state} and speak. Ctrl+C to quit.")
     try:
         while True:
-            samples = audio.record_clip()
-            text, secs = stt.transcribe_samples(samples, args.model, prompt, args.device)
-            name, score = match(text, presets, args.threshold)
-            log_command(text, name, score, secs)
-            if name is None:
-                print(f"ไม่เข้าใจ  (heard {text!r}, score {score:.0f})")
-                speaker.speak(NO_MATCH_REPLY)
-                continue
-            print(f"{name}  (heard {text!r}, score {score:.0f}, {secs:.1f}s)")
-            speaker.speak(spoken_reply(presets[name]))  # before the preset: it may wait/sleep
-            run_preset(presets, name)
+            time.sleep(1)
     except KeyboardInterrupt:
         print("\nbye")
+    finally:
+        engine.close()
 
 
 def cmd_transcribe(args, presets):
@@ -171,10 +185,14 @@ def main(argv=None):
         elif args.command == "listen":
             return cmd_listen(args, presets) or 0
         elif args.command == "record":
-            from jarvis import audio
+            import threading
 
-            print("Hold F9 and speak, release to stop...")
-            samples = audio.record_clip()
+            from jarvis import audio
+            from jarvis.settings import load_settings
+
+            print("Speak now (it stops by itself after a pause)...")
+            samples, outcome = audio.record_until_silence(threading.Event(), load_settings())
+            print(f"stopped: {outcome}")
             audio.save_wav(audio.LAST_WAV, samples)
             print(
                 f"saved {audio.LAST_WAV} - "

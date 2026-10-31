@@ -1,0 +1,9 @@
+{
+  "hotkey": "caps lock",
+  "armed_on_start": true,
+  "silence_ms": 1000,
+  "min_threshold": 0.01,
+  "max_seconds": 15,
+  "beep": true,
+  "match_threshold": 70
+}

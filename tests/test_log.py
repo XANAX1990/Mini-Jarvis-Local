@@ -11,6 +11,7 @@ from jarvis.log import (
     TimestampedWriter,
     log_command,
     prune_command_files,
+    prune_daily_logs,
     prune_commands,
     prune_text_log,
 )
@@ -101,36 +102,55 @@ def test_no_temp_files_left_behind(tmp_path):
     assert [f.name for f in tmp_path.iterdir()] == ["commands.jsonl"]
 
 
-# ---- logs/commands/: one file per command ----
+# ---- logs/YYYY-MM-DD.jsonl: one file per day ----
 
-def test_file_is_named_by_local_time(tmp_path):
-    entry = log_command("x", None, 0, 1, directory=tmp_path, now=NOW)
-    assert entry["file"].name == "2026-10-30_12-00-00.json"
+def test_entries_are_appended_to_the_bangkok_day_file(tmp_path):
+    late = datetime(2026, 10, 30, 23, 30, tzinfo=timezone.utc)  # already the 31st in Bangkok
+    first = log_command("hotkey", "เปิดโหมดเกม", "game", 91.234, "ok", 2.345, directory=tmp_path, now=late)
+    log_command("web", "", None, None, "no_speech", 5.0, directory=tmp_path, now=late)
+    assert [f.name for f in tmp_path.iterdir()] == ["2026-10-31.jsonl"]
+    lines = read_lines(tmp_path / "2026-10-31.jsonl")
+    assert json.loads(lines[0]) == first
+    assert first["time"] == "2026-10-31T06:30:00+07:00"
+    assert (first["source"], first["preset"], first["score"], first["result"], first["seconds"]) == (
+        "hotkey", "game", 91.2, "ok", 2.35)
+    assert json.loads(lines[1])["score"] is None
 
 
-def test_same_second_never_overwrites(tmp_path):
-    names = {log_command(str(i), None, 0, 1, directory=tmp_path, now=NOW)["file"].name for i in range(3)}
-    assert names == {"2026-10-30_12-00-00.json", "2026-10-30_12-00-00-2.json", "2026-10-30_12-00-00-3.json"}
-    assert len(list(tmp_path.glob("*.json"))) == 3
+def test_every_entry_gets_its_own_uuid(tmp_path):
+    ids = {log_command("test", "", "game", None, "ok", 0, directory=tmp_path, now=NOW)["id"] for _ in range(3)}
+    assert len(ids) == 3
+    assert all(len(i) == 36 for i in ids)
 
 
-def test_command_files_older_than_thirty_days_are_deleted(tmp_path):
-    for days in (31, 29, 0):
-        log_command("x", None, 0, 1, directory=tmp_path, now=NOW - timedelta(days=days))
+def test_day_files_older_than_thirty_days_are_deleted(tmp_path):
+    for days in (31, 30, 29, 0):
+        log_command("test", "x", None, 0, "ok", 1, directory=tmp_path, now=NOW - timedelta(days=days))
+    assert prune_daily_logs(tmp_path, now=NOW) == 1
+    assert sorted(f.name for f in tmp_path.iterdir()) == ["2026-09-30.jsonl", "2026-10-01.jsonl", "2026-10-30.jsonl"]
+
+
+def test_daily_prune_leaves_other_files_alone(tmp_path):
+    for name in ("commands.jsonl", "2020-01-01.json", "notes.jsonl", "2026-13-45.jsonl"):
+        (tmp_path / name).write_text("{}", encoding="utf-8")
+    (tmp_path / "2020-01-01.jsonl").write_text("{}", encoding="utf-8")
+    assert prune_daily_logs(tmp_path, now=NOW) == 1
+    assert not (tmp_path / "2020-01-01.jsonl").exists()
+    assert len(list(tmp_path.iterdir())) == 4
+    assert prune_daily_logs(tmp_path / "missing", now=NOW) == 0
+
+
+def test_old_command_files_are_still_pruned(tmp_path):
+    for stamp in ("2026-09-01_10-00-00", "2026-10-30_10-00-00"):
+        (tmp_path / f"{stamp}.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "notes.json").write_text("{}", encoding="utf-8")
     assert prune_command_files(tmp_path, now=NOW) == 1
     assert len(list(tmp_path.glob("*.json"))) == 2
 
 
-def test_command_prune_ignores_files_that_are_not_ours(tmp_path):
-    (tmp_path / "notes.json").write_text("{}", encoding="utf-8")
-    assert prune_command_files(tmp_path, now=NOW) == 0
-    assert (tmp_path / "notes.json").exists()
-    assert prune_command_files(tmp_path / "missing", now=NOW) == 0
-
-
 def test_logging_then_pruning_with_real_clock(tmp_path):
-    log_command("เปิดโหมดเกม", "game", 100.0, 2.0, directory=tmp_path)
-    assert prune_command_files(tmp_path) == 0  # a file written just now is not old
+    log_command("hotkey", "เปิดโหมดเกม", "game", 100.0, "ok", 2.0, directory=tmp_path)
+    assert prune_daily_logs(tmp_path) == 0  # a file written just now is not old
 
 
 # ---- listen.log ----

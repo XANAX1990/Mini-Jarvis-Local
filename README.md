@@ -15,7 +15,7 @@ I was already launching my apps from `.bat` files. Jarvis is the next step: the 
 ## How it works
 
 ```
-hold F9 → record mic → Whisper (local) → text
+tap the hotkey (Caps Lock) → record until you stop talking → Whisper (local) → text
       → fuzzy-match against preset phrases → run preset → spoken reply (Piper)
 ```
 
@@ -28,7 +28,7 @@ hold F9 → record mic → Whisper (local) → text
 | Feature | Status |
 |---|---|
 | Run presets from the command line (`python -m jarvis run game`) | ✅ Done |
-| Push-to-talk recording (hold F9) | ✅ Done |
+| Tap-to-talk recording: hotkey (default Caps Lock), stops by itself after a pause, master on/off | ✅ Done |
 | Thai speech-to-text with faster-whisper (local; optional GPU) | ✅ Done |
 | Fuzzy matching of speech to presets | ✅ Done |
 | Spoken reply with Piper (Thai voice) | ✅ Done (beeps if no voice file is present) |
@@ -85,10 +85,10 @@ The first run of `listen` downloads the Whisper model (a few hundred MB) from Hu
 |---|---|
 | `list` | Show presets and their trigger phrases |
 | `run <name>` | Run a preset without voice |
-| `record` | Hold F9, save `logs/last.wav`, print duration and peak level |
+| `record` | Record until you stop talking, save `logs/last.wav`, print duration and peak level |
 | `transcribe [files] [--model small] [--compare]` | Speech-to-text on WAV files, with timings |
 | `say "<text>"` | Speak a sentence with the Piper voice (beeps if none) |
-| `listen [--device cuda] [--threshold 70]` | The full loop: hold F9, speak, run the matching preset |
+| `listen [--device cuda] [--threshold 70]` | The full loop: tap the hotkey, speak, run the matching preset. Options live in `settings.json` (copy `settings.example.json`) |
 | `autostart install\|remove\|status` | Start `listen` at login (shortcut in the Startup folder) |
 
 ### Ask how much you spent

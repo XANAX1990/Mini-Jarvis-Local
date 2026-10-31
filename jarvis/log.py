@@ -1,50 +1,75 @@
-"""Write one JSON file per command into logs/commands/, and keep logs for a limited time.
+"""Write one JSON line per command into logs/YYYY-MM-DD.jsonl, and keep logs for a limited time.
 
-Every utterance gets its own file, named by local time: logs/commands/2026-10-31_14-02-33.json.
+Each entry: id (uuid4), time (ISO, Asia/Bangkok), source (hotkey | web | test), transcript, preset,
+score, result (ok | no_match | no_speech | error), seconds. The file is named by the Bangkok date.
 
 Transcripts are what people said near the microphone, so they are not kept for ever:
-`prune_command_files()` and `prune_commands()` (when `listen` starts) and `prune_text_log()` (before
-listen.log is opened) drop everything older than RETENTION_DAYS from logs/commands/, the old
-logs/commands.jsonl and logs/listen.log. logs/ is never committed (see .gitignore).
+`prune_daily_logs()` (when `listen` starts) drops day files older than RETENTION_DAYS, and the older
+formats are pruned too: `prune_command_files()` (logs/commands/), `prune_commands()`
+(logs/commands.jsonl) and `prune_text_log()` (listen.log, before it is opened). They are not migrated.
+logs/ is never committed (see .gitignore).
 """
 import json
 import os
+import re
 import tempfile
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "commands.jsonl"
+LOGS_DIR = LOG_PATH.parent
 RETENTION_DAYS = 30
-
+TIMEZONE = ZoneInfo("Asia/Bangkok")
 
 COMMANDS_DIR = LOG_PATH.parent / "commands"
 _FILE_STAMP = "%Y-%m-%d_%H-%M-%S"
+_DAY_FILE = re.compile(r"\d{4}-\d{2}-\d{2}\.jsonl")
 
 
-def log_command(transcript, preset, score, seconds, directory=COMMANDS_DIR, now=None):
-    """Write this command to its own file in `directory`. Returns the entry (with its file path)."""
-    directory = Path(directory)
+def log_command(source, transcript, preset, score, result, seconds, directory=None, now=None):
+    """Append this command to today's file in `directory`. Returns the entry."""
+    directory = Path(directory or LOGS_DIR)
     directory.mkdir(parents=True, exist_ok=True)
-    moment = now or datetime.now().astimezone()
+    moment = (now or datetime.now(TIMEZONE)).astimezone(TIMEZONE)
     entry = {
+        "id": str(uuid.uuid4()),
         "time": moment.isoformat(timespec="seconds"),
+        "source": source,
         "transcript": transcript,
         "preset": preset,
-        "score": round(score, 1),
+        "score": None if score is None else round(score, 1),
+        "result": result,
         "seconds": round(seconds, 2),
     }
-    stem = moment.strftime(_FILE_STAMP)
-    for n in range(1, 1000):  # two commands in the same second: -2, -3, ... never overwrite
-        path = directory / (f"{stem}.json" if n == 1 else f"{stem}-{n}.json")
-        try:
-            with open(path, "x", encoding="utf-8") as f:
-                f.write(json.dumps(entry, ensure_ascii=False, indent=2) + "\n")
-            break
-        except FileExistsError:
+    with open(directory / f"{moment:%Y-%m-%d}.jsonl", "a", encoding="utf-8", newline="\n") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    return entry
+
+
+def prune_daily_logs(directory=None, days=RETENTION_DAYS, now=None):
+    """Delete logs/YYYY-MM-DD.jsonl files older than `days`. Returns how many.
+
+    Age comes from the file name (Bangkok date). A file whose name is not one of ours is left alone.
+    """
+    directory = Path(directory or LOGS_DIR)
+    if not directory.is_dir():
+        return 0
+    today = (now or datetime.now(TIMEZONE)).astimezone(TIMEZONE).date()
+    cutoff = today - timedelta(days=days)
+    removed = 0
+    for path in directory.glob("*.jsonl"):
+        if not _DAY_FILE.fullmatch(path.name):
             continue
-    else:
-        raise OSError(f"could not find a free log file name for {stem}")
-    return {**entry, "file": path}
+        try:
+            day = datetime.strptime(path.stem, "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        if day < cutoff:
+            path.unlink(missing_ok=True)
+            removed += 1
+    return removed
 
 
 def prune_command_files(directory=COMMANDS_DIR, days=RETENTION_DAYS, now=None):

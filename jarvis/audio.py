@@ -1,16 +1,17 @@
-"""Push-to-talk recording: hold F9 to record, release to stop.
+"""Recording: starts when asked, stops by itself after silence (see vad.py) or when told to.
 
 16 kHz mono float32 in memory, saved as 16-bit PCM WAV.
 """
-import time
+import queue
 import wave
 from pathlib import Path
 
 import numpy as np
 
-SAMPLE_RATE = 16_000
+from jarvis.vad import FRAME_SAMPLES, SAMPLE_RATE, EndpointDetector
+
 MIN_SECONDS = 0.3
-HOTKEY = "f9"
+STOPPED = "stopped"  # recording result when the caller ended it early
 LAST_WAV = Path(__file__).resolve().parent.parent / "logs" / "last.wav"
 
 
@@ -64,33 +65,52 @@ def _check_microphone(sd):
         ) from None
 
 
-def record_once():
-    """Block until F9 is held and released; return the samples (maybe too short)."""
-    import keyboard
+def record_until_silence(stop_event, settings):
+    """Record from the default mic until the speaker stops, `stop_event` is set or the cap is hit.
+
+    Returns (samples, outcome): outcome is a vad result (speech_done / no_speech / max_seconds)
+    or STOPPED. Never listens beyond settings.max_seconds.
+    """
     import sounddevice as sd
 
     _check_microphone(sd)
+    frames = queue.Queue()
+    detector = EndpointDetector(settings.silence_ms, settings.min_threshold, settings.max_seconds)
     chunks = []
 
-    def on_audio(indata, frames, time_info, status):
-        chunks.append(indata[:, 0].copy())
+    def on_audio(indata, frame_count, time_info, status):
+        frames.put(indata[:, 0].copy())
 
-    keyboard.wait(HOTKEY)  # returns when F9 is pressed
     try:
         with sd.InputStream(
-            samplerate=SAMPLE_RATE, channels=1, dtype="float32", callback=on_audio
+            samplerate=SAMPLE_RATE, channels=1, dtype="float32",
+            blocksize=FRAME_SAMPLES, callback=on_audio,
         ):
-            while keyboard.is_pressed(HOTKEY):
-                time.sleep(0.01)
+            while True:
+                if stop_event.is_set():
+                    outcome = STOPPED
+                    break
+                try:
+                    block = frames.get(timeout=0.05)
+                except queue.Empty:
+                    continue
+                chunks.append(block)
+                outcome = detector.feed(block)
+                if outcome is not None:
+                    break
     except sd.PortAudioError as e:
         raise AudioError(f"could not open the microphone: {e}") from None
-    return np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
+    return (np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)), outcome
 
 
-def record_clip():
-    """Keep waiting until a clip at least MIN_SECONDS long is recorded."""
-    while True:
-        samples = record_once()
-        if is_long_enough(samples):
-            return samples
-        print(f"ignored: clip under {MIN_SECONDS}s")
+def beep(kind):
+    """'start' (high, short) or 'stop' (lower). Blocks until played; 'start' also lets the speaker
+    tail die out so the beep is not recorded."""
+    import time
+    import winsound
+
+    if kind == "start":
+        winsound.Beep(1200, 120)
+        time.sleep(0.1)
+    else:
+        winsound.Beep(700, 120)

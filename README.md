@@ -4,7 +4,7 @@ A small, fully local voice launcher for my Windows PC. I tap a key (or click a b
 
 > **Status:** the voice launcher ([`PLAN.md`](./PLAN.md), phases 1-6) and its local web UI ([`PLAN-web.md`](./PLAN-web.md), phases 7-12) are built. The Piper voice file is not in the repo (see [Spoken replies](#spoken-replies)), and autostart is opt-in (`python -m jarvis autostart install`).
 
-![Jarvis demo: `say`, then `listen` matching "เปิดโหมดเกม" to the game preset and ignoring a clip that is too short](GIF/Mini-Jarvis%20GIF.gif)
+![`python -m jarvis listen`: models loaded, the web API up on 127.0.0.1:3003, ready for a tap on Caps Lock](docs/screenshots/terminal.png)
 
 ---
 

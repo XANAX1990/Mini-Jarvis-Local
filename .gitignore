@@ -11,6 +11,9 @@ settings.json
 presets.json
 presets.json.bak
 presets.json.tmp
+programs.json
+programs.json.bak
+programs.json.tmp
 web/node_modules/
 web/.next/
 web/out/

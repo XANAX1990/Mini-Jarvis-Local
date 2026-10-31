@@ -11,7 +11,7 @@ VALID = {
         "phrases": ["เปิดโหมดเกม"],
         "reply": "ok",
         "actions": [
-            {"type": "run", "path": "C:\\tools\\a.exe", "args": ["--x"]},
+            {"type": "run", "program": "tool"},
             {"type": "open", "target": "C:\\file.lnk"},
             {"type": "uri", "target": "roblox:"},
             {"type": "chrome", "urls": ["https://example.com"]},
@@ -60,23 +60,94 @@ def test_presets_json_is_git_ignored_and_the_example_is_not():
     assert "presets.json" in lines and "presets.example.json" not in lines
 
 
-def test_first_run_tells_the_owner_that_presets_json_was_created(monkeypatch, capsys):
+def test_first_run_tells_the_owner_that_the_files_were_created(quiet_main, monkeypatch, capsys):
     monkeypatch.setattr(app, "ensure_presets_file", lambda: True)
-    monkeypatch.setattr(app, "load_presets", lambda: {"game": {"phrases": ["เปิดโหมดเกม"]}})
+    monkeypatch.setattr(app, "ensure_programs_file", lambda: True)
     assert app.main(["list"]) == 0
-    assert "created presets.json from presets.example.json" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "created presets.json from presets.example.json" in out
+    assert "created programs.json from programs.example.json" in out
+
+
+def test_a_start_that_moved_programs_says_which(quiet_main, monkeypatch, capsys):
+    monkeypatch.setattr(app, "migrate_legacy_runs", lambda *a, **k: ["discord-update", "notepad"])
+    assert app.main(["list"]) == 0
+    out = capsys.readouterr().out
+    assert "discord-update, notepad" in out and "presets.json.bak" in out
+
+
+TOOLS = {"tool": {"path": "C:\\tools\\a.exe", "args": ["--x"]}}
+
+
+def test_a_run_step_must_name_a_program_that_exists():
+    assert validate_presets(copy.deepcopy(VALID), TOOLS)["game"]["actions"][0] == {"type": "run", "program": "tool"}
+    with pytest.raises(PresetError, match="preset 'game' action 1: program 'tool' is not in programs.json"):
+        validate_presets(copy.deepcopy(VALID), {})
+    validate_presets(copy.deepcopy(VALID))  # without programs there is nothing to check against
+
+
+def test_load_presets_checks_the_programs_too(tmp_path):
+    import json
+
+    f = tmp_path / "presets.json"
+    f.write_text(json.dumps(VALID), encoding="utf-8")
+    assert "game" in load_presets(f, programs=TOOLS)
+    with pytest.raises(PresetError, match="not in programs.json"):
+        load_presets(f, programs={})
+
+
+def test_a_run_step_starts_the_program_from_programs_json(monkeypatch):
+    from jarvis import presets
+
+    started = []
+    monkeypatch.setattr(presets.subprocess, "Popen", lambda argv: started.append(argv))
+    monkeypatch.setenv("JARVIS_TEST_DIR", "C:\\x")
+    programs = {"tool": {"path": "%JARVIS_TEST_DIR%\\a.exe", "args": ["--x", "%JARVIS_TEST_DIR%"]}}
+    presets.run_action({"type": "run", "program": "tool"}, programs)
+    assert started == [["C:\\x\\a.exe", "--x", "C:\\x"]]  # a list: never joined into a command line
+
+
+def test_a_run_step_never_starts_anything_programs_json_does_not_name(monkeypatch):
+    from jarvis import presets
+
+    started = []
+    monkeypatch.setattr(presets.subprocess, "Popen", lambda argv: started.append(argv))
+    for action in (
+        {"type": "run", "program": "nope"},
+        {"type": "run", "path": "C:\\Windows\\System32\\calc.exe"},  # the old shape: no longer runs
+        {"type": "run"},
+    ):
+        with pytest.raises(OSError):
+            presets.run_action(action, {"tool": {"path": "C:\\a.exe", "args": []}})
+        with pytest.raises(OSError):
+            presets.run_action(action, None)
+    assert started == []
+
+
+def test_a_failing_run_step_is_reported_and_the_rest_still_run(monkeypatch):
+    from jarvis import presets
+
+    ran = []
+    monkeypatch.setattr(presets.subprocess, "Popen", lambda argv: ran.append(argv))
+    data = {"p": {"phrases": ["ก"], "reply": "", "actions": [
+        {"type": "run", "program": "gone"}, {"type": "run", "program": "tool"}]}}
+    log = []
+    assert presets.run_preset(data, "p", log.append, programs=TOOLS) == 1
+    assert ran == [["C:\\tools\\a.exe", "--x"]] and "gone" in log[0]
 
 
 @pytest.mark.parametrize(
     "mutate, message",
     [
         (lambda p: p["actions"].append({"type": "format_disk"}), "does not match any of the expected tags"),
-        (lambda p: p["actions"].append({"type": "run"}), "actions[6].path: Field required"),
+        (lambda p: p["actions"].append({"type": "run"}), "actions[6].program: Field required"),
         (lambda p: p["actions"].append({"type": "uri"}), "actions[6].target: Field required"),
         (lambda p: p["actions"].append({"type": "chrome", "urls": []}), "at least 1 item"),
         (lambda p: p["actions"].append({"type": "wait", "seconds": -1}), "greater than or equal to 0"),
         (lambda p: p["actions"].append({"type": "wait", "seconds": True}), "valid integer"),
-        (lambda p: p["actions"].append({"type": "run", "path": "C:\\a.exe", "args": "x"}), "args: Input should be a valid list"),
+        (lambda p: p["actions"].append({"type": "run", "program": "tool", "path": "C:\\a.exe"}), "actions[6].path: Extra inputs are not permitted"),
+        (lambda p: p["actions"].append({"type": "run", "path": "C:\\a.exe", "args": "x"}), "actions[6].program: Field required"),
+        (lambda p: p["actions"].append({"type": "run", "program": "Tool"}), "actions[6].program"),
         (lambda p: p.pop("phrases"), "phrases"),
         (lambda p: p.update(phrases=[]), "phrases"),
         (lambda p: p.pop("reply"), "reply"),

@@ -1,7 +1,7 @@
 """Load + validate presets.json and run preset actions.
 
 Speech only ever selects a preset *name*. Nothing here builds a command from
-transcript text: every path/URL comes from presets.json.
+transcript text: every URL comes from presets.json and every program from programs.json.
 """
 import json
 import os
@@ -49,8 +49,10 @@ def describe_error(loc, message):
     return f"{''.join(text) or 'presets'}: {message}"
 
 
-def validate_presets(data):
-    """Return `data` as plain dicts if valid, else raise PresetError with a clear message."""
+def validate_presets(data, programs=None):
+    """Return `data` as plain dicts if valid, else raise PresetError with a clear message.
+
+    With `programs` (programs.json), every `run` step must name a program in it."""
     if not isinstance(data, dict) or not data:
         raise PresetError("presets file must be a non-empty object of presets")
     try:
@@ -58,7 +60,16 @@ def validate_presets(data):
     except ValidationError as e:
         first = e.errors()[0]
         raise PresetError(describe_error(first["loc"], first["msg"])) from None
-    return {name: preset.model_dump(exclude_unset=True) for name, preset in models.items()}
+    presets = {name: preset.model_dump(exclude_unset=True) for name, preset in models.items()}
+    if programs is not None:
+        for name, preset in presets.items():
+            for i, action in enumerate(preset["actions"], 1):
+                if action["type"] == "run" and action["program"] not in programs:
+                    raise PresetError(
+                        f"preset '{name}' action {i}: program '{action['program']}' is not in programs.json "
+                        "(add it on the Programs page, or in programs.json)"
+                    )
+    return presets
 
 
 def ensure_presets_file(path=PRESETS_PATH, example=EXAMPLE_PATH):
@@ -72,7 +83,7 @@ def ensure_presets_file(path=PRESETS_PATH, example=EXAMPLE_PATH):
     return True
 
 
-def load_presets(path=PRESETS_PATH):
+def load_presets(path=PRESETS_PATH, programs=None):
     try:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
@@ -80,7 +91,7 @@ def load_presets(path=PRESETS_PATH):
         raise PresetError(f"presets file not found: {path}") from None
     except json.JSONDecodeError as e:
         raise PresetError(f"presets file is not valid JSON: {e}") from None
-    return validate_presets(data)
+    return validate_presets(data, programs)
 
 
 def get_preset(presets, name):
@@ -97,11 +108,15 @@ def _find_chrome():
     raise OSError("Chrome not found in the usual install locations")
 
 
-def run_action(action):
+def run_action(action, programs=None):
     kind = action["type"]
     if kind == "run":
-        path = os.path.expandvars(action["path"])
-        args = [os.path.expandvars(a) for a in action.get("args", [])]
+        name = action.get("program")  # an old-style step (a path, no program) must fail, not crash
+        program = (programs or {}).get(name)
+        if program is None:  # only programs.json decides what may start
+            raise OSError(f"program '{name}' is not in programs.json")
+        path = os.path.expandvars(program["path"])
+        args = [os.path.expandvars(a) for a in program.get("args", [])]
         subprocess.Popen([path, *args])  # list form, never shell=True
     elif kind in ("open", "uri"):
         os.startfile(os.path.expandvars(action["target"]))
@@ -112,13 +127,13 @@ def run_action(action):
     # "spending" starts nothing: its answer is spoken instead of the reply (see spoken_reply)
 
 
-def run_preset(presets, name, log=print):
+def run_preset(presets, name, log=print, programs=None):
     """Run every action in order. A failing action is reported, not fatal."""
     preset = get_preset(presets, name)
     failures = 0
     for i, action in enumerate(preset["actions"], 1):
         try:
-            run_action(action)
+            run_action(action, programs)
         except OSError as e:
             failures += 1
             log(f"action {i} ({action['type']}) failed: {e}")

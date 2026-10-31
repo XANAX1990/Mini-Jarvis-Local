@@ -1,8 +1,11 @@
 """Preset models, used both for presets.json and for the web API (SECURITY.md: "Presets written from the web").
 
 Structural rules live here (types, lengths, absolute paths, URL and URI schemes). Whether a file
-exists is checked separately by `missing_paths`, only when a preset is saved from the web: an app
-that was uninstalled must not stop Jarvis from starting.
+exists, and which files `open` may touch, is checked separately (`open_problems`), only when a preset is
+saved from the web: an app that was uninstalled must not stop Jarvis from starting.
+
+A `run` step never carries a path or arguments: it names a program from programs.json (an allow-list the
+web can only extend after a Yes/No box on the desktop, see confirm.py).
 """
 import os
 import re
@@ -22,21 +25,10 @@ BLOCKED_URI_SCHEMES = {"file", "javascript", "vbscript", "data", "shell", "searc
 URI_SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]+:")
 PERIODS = ("today", "week", "month")
 
-# Programs that run other commands, and script files. A preset written from the web may not start them:
-# with `run` plus args they turn "start a program" into "run any command". Best effort (a renamed copy
-# gets past it); presets.json itself is yours to edit, so loading the file does not apply this.
-SHELLS = {
-    "cmd.exe", "powershell.exe", "powershell_ise.exe", "pwsh.exe", "wscript.exe", "cscript.exe", "mshta.exe",
-    "rundll32.exe", "regsvr32.exe", "msiexec.exe", "wmic.exe", "certutil.exe", "bitsadmin.exe", "bash.exe",
-    "wsl.exe", "wt.exe", "forfiles.exe", "msbuild.exe", "installutil.exe", "cmstp.exe", "schtasks.exe",
-    "reg.exe", "sc.exe",
-}
-SCRIPT_SUFFIXES = {
-    ".bat", ".cmd", ".ps1", ".psm1", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh", ".hta", ".msi", ".scr",
-    ".reg", ".com", ".pif", ".cpl",
-}
-BLOCKED_PROGRAM = "programs that run other commands (shells, script hosts) are not allowed from the web"
-BLOCKED_SCRIPT = "script files are not allowed from the web"
+# What `open` may open from the web: folders, and documents/media of these types. No shortcuts (.lnk, .url),
+# scripts or programs: those would start something.
+OPEN_SUFFIXES = (".pdf", ".txt", ".md", ".docx", ".xlsx", ".pptx", ".png", ".jpg", ".jpeg", ".gif", ".mp3", ".mp4")
+OPEN_NOT_ALLOWED = "only folders and these files can be opened from the web: pdf, txt, md, docx, xlsx, pptx, png, jpg, jpeg, gif, mp3, mp4"
 
 
 class _Model(BaseModel):
@@ -65,8 +57,9 @@ def _absolute(value):
     return value
 
 
-class RunAction(_Model):
-    type: Literal["run"]
+class Program(_Model):
+    """An entry of programs.json: what a `run` step may start. Added from the web only after a confirmation."""
+
     path: StrictStr = Field(min_length=1, max_length=500)
     args: list[Annotated[StrictStr, Field(max_length=500)]] = Field(default_factory=list, max_length=20)
 
@@ -82,6 +75,15 @@ class RunAction(_Model):
         if not value.lower().endswith(".exe"):
             raise ValueError("must be an .exe file")
         return value
+
+
+class ProgramCreate(Program):
+    name: Name
+
+
+class RunAction(_Model):
+    type: Literal["run"]
+    program: Name  # a key of programs.json; a path or args here are refused (extra fields are forbidden)
 
 
 class OpenAction(_Model):
@@ -167,12 +169,11 @@ class PresetCreate(Preset):
 
 
 # What the web editor builds its form from (GET /api/action-types): a new type needs one entry here.
-# field kinds: path | text | text-list | number | choice
+# field kinds: path | text | text-list | number | choice | program (a name from GET /api/programs)
 ACTION_TYPES = [
     {"type": "run", "label": "เปิดโปรแกรม", "fields": [
-        {"name": "path", "kind": "path", "required": True},
-        {"name": "args", "kind": "text-list", "required": False}]},
-    {"type": "open", "label": "เปิดไฟล์/โฟลเดอร์/shortcut", "fields": [
+        {"name": "program", "kind": "program", "required": True}]},
+    {"type": "open", "label": "เปิดไฟล์/โฟลเดอร์", "fields": [
         {"name": "target", "kind": "path", "required": True}]},
     {"type": "uri", "label": "ลิงก์แอป", "fields": [
         {"name": "target", "kind": "text", "required": True}]},
@@ -185,35 +186,31 @@ ACTION_TYPES = [
 ]
 
 
-def _resolved(path):
-    """The expanded path as Windows will see it: symlinks and short names resolved, trailing dots/spaces
-    dropped (Windows ignores them, so 'cmd.exe.' is cmd.exe)."""
-    expanded = os.path.expandvars(path).rstrip(" .")
-    return PureWindowsPath(os.path.realpath(expanded) if os.path.exists(expanded) else expanded)
+def unknown_programs(preset, programs):
+    """(field, message) for each `run` step that names a program that is not in programs.json."""
+    return [
+        (f"actions.{i}.program", "unknown program")
+        for i, action in enumerate(preset.actions)
+        if action.type == "run" and action.program not in programs
+    ]
 
 
-def blocked_programs(preset):
-    """(field, message) for each step that would start a shell, a script host or a script file."""
+def open_problems(preset):
+    """(field, message) for each `open` step that is missing or not allowed from the web.
+
+    Allowed: a folder, or a file of a type in OPEN_SUFFIXES. The path is judged after symlinks and
+    short names are resolved and trailing dots/spaces dropped (Windows ignores them), so a link called
+    a.pdf that points at a program does not get through. Messages never echo the path."""
     problems = []
     for i, action in enumerate(preset.actions):
-        if action.type == "run":
-            if _resolved(action.path).name.lower() in SHELLS:
-                problems.append((f"actions.{i}.path", BLOCKED_PROGRAM))
-        elif action.type == "open":
-            target = _resolved(action.target)
-            if target.name.lower() in SHELLS:
-                problems.append((f"actions.{i}.target", BLOCKED_PROGRAM))
-            elif target.suffix.lower() in SCRIPT_SUFFIXES:
-                problems.append((f"actions.{i}.target", BLOCKED_SCRIPT))
-    return problems
-
-
-def missing_paths(preset):
-    """(field, message) for each run/open path that does not exist. Messages never echo the path."""
-    problems = []
-    for i, action in enumerate(preset.actions):
-        if action.type == "run" and not os.path.isfile(os.path.expandvars(action.path)):
-            problems.append((f"actions.{i}.path", "file not found"))
-        elif action.type == "open" and not os.path.exists(os.path.expandvars(action.target)):
-            problems.append((f"actions.{i}.target", "path not found"))
+        if action.type != "open":
+            continue
+        field = f"actions.{i}.target"
+        expanded = os.path.expandvars(action.target).rstrip(" .")
+        if not os.path.exists(expanded):
+            problems.append((field, "path not found"))
+            continue
+        real = os.path.realpath(expanded)
+        if not os.path.isdir(real) and PureWindowsPath(real).suffix.lower() not in OPEN_SUFFIXES:
+            problems.append((field, OPEN_NOT_ALLOWED))
     return problems

@@ -9,11 +9,7 @@
     "actions": [
       {
         "type": "run",
-        "path": "%LocalAppData%\\Discord\\Update.exe",
-        "args": [
-          "--processStart",
-          "Discord.exe"
-        ]
+        "program": "discord"
       },
       {
         "type": "wait",

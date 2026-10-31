@@ -1,0 +1,13 @@
+{
+  "discord": {
+    "path": "%LocalAppData%\\Discord\\Update.exe",
+    "args": [
+      "--processStart",
+      "Discord.exe"
+    ]
+  },
+  "notepad": {
+    "path": "C:\\Windows\\notepad.exe",
+    "args": []
+  }
+}

@@ -7,8 +7,11 @@ from dataclasses import replace
 from jarvis.audio import AudioError
 from jarvis.matcher import MIN_THRESHOLD
 from jarvis import privileges
+from jarvis.programs import (
+    PROGRAMS_PATH, ProgramError, ProgramStore, ensure_programs_file, migrate_legacy_runs,
+)
 from jarvis.presets import (
-    PresetError, ensure_presets_file, get_preset, load_presets, run_preset, spending_period, spoken_reply,
+    PRESETS_PATH, PresetError, ensure_presets_file, get_preset, load_presets, run_preset, spending_period, spoken_reply,
 )
 
 
@@ -87,7 +90,7 @@ def redirect_output_if_windowless():
         sys.stderr = sys.stderr or f
 
 
-def cmd_listen(args, presets):
+def cmd_listen(args, presets, programs):
     from jarvis import api, audio, single, stt
     from jarvis.engine import Engine
     from jarvis.hotkey import Hotkeys
@@ -127,7 +130,7 @@ def cmd_listen(args, presets):
         record=audio.record_until_silence,
         transcribe=lambda samples, prompt: stt.transcribe_samples(samples, args.model, prompt, args.device),
         match=match,
-        run_preset=run_preset,
+        run_preset=lambda presets, name, log=print: run_preset(presets, name, log, programs=programs.programs),
         spoken_reply=spoken_reply,
         speak=speaker.speak,
         beep=audio.beep,
@@ -140,7 +143,7 @@ def cmd_listen(args, presets):
     web = None
     if not args.no_web:
         app = api.create_app(
-            engine, PresetStore(), settings_path=SETTINGS_PATH, logs_dir=LOGS_DIR, web_dir=api.WEB_DIR,
+            engine, PresetStore(), program_store=programs, settings_path=SETTINGS_PATH, logs_dir=LOGS_DIR, web_dir=api.WEB_DIR,
             dev=os.environ.get("JARVIS_DEV") == "1",
         )
         web = server.ApiServer(app, api.PORT)
@@ -195,7 +198,14 @@ def main(argv=None):
     try:
         if ensure_presets_file():
             print("created presets.json from presets.example.json (it is yours: edit it in the web UI or by hand)")
-        presets = load_presets()
+            if ensure_programs_file():
+                print("created programs.json from programs.example.json (the programs a preset may run)")
+        moved = migrate_legacy_runs(PRESETS_PATH, PROGRAMS_PATH)
+        if moved:
+            print(f"moved the programs your presets run into programs.json: {', '.join(moved)} (old presets.json kept as presets.json.bak)")
+        programs = ProgramStore()
+        programs.load()
+        presets = load_presets(programs=programs.programs)
         if args.command == "list":
             for name, preset in presets.items():
                 print(f"{name}: {', '.join(preset['phrases'])}")
@@ -208,7 +218,7 @@ def main(argv=None):
                 speaker = Speaker()
                 speaker.speak(text)
                 speaker.wait()
-            return 1 if run_preset(presets, args.name) else 0
+            return 1 if run_preset(presets, args.name, programs=programs.programs) else 0
         elif args.command == "transcribe":
             cmd_transcribe(args, presets)
         elif args.command == "autostart":
@@ -220,7 +230,7 @@ def main(argv=None):
             speaker.speak(args.text)
             speaker.wait()
         elif args.command == "listen":
-            return cmd_listen(args, presets) or 0
+            return cmd_listen(args, presets, programs) or 0
         elif args.command == "record":
             import threading
 
@@ -235,7 +245,7 @@ def main(argv=None):
                 f"saved {audio.LAST_WAV} - "
                 f"{audio.duration_seconds(samples):.2f}s, peak {audio.peak_level(samples):.2f}"
             )
-    except (PresetError, AudioError, OSError) as e:
+    except (PresetError, ProgramError, AudioError, OSError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
     return 0

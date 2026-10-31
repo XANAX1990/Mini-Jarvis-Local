@@ -5,6 +5,7 @@ Host allow-list, Origin + X-Jarvis + JSON on every non-GET, no CORS outside dev 
 validated by pydantic with unknown fields refused, and short errors with no paths or stack traces.
 """
 import copy
+import os
 import threading
 from datetime import datetime
 from pathlib import Path as FilePath
@@ -23,7 +24,9 @@ from jarvis import log as jarvis_log
 from jarvis.audio import AudioError
 from jarvis.engine import Refused
 from jarvis.matcher import normalize, unmatched_phrases
-from jarvis.models import ACTION_TYPES, NAME_PATTERN, Name, Preset, PresetCreate, blocked_programs, missing_paths
+from jarvis import confirm as confirm_box
+from jarvis.models import ACTION_TYPES, NAME_PATTERN, Name, Preset, PresetCreate, ProgramCreate, open_problems, unknown_programs
+from jarvis.programs import describe
 from jarvis.presets import PresetError
 from jarvis.settings import BOUNDS, Settings, save_settings, validate_hotkey
 
@@ -261,11 +264,13 @@ def check_matching(old, new, name, threshold, must_work=(), skip=()):
 
 # ---- the app ----
 
-def create_app(engine, store, *, settings_path, logs_dir, port=PORT, dev=False, capture=None, web_dir=None,
-               log=print):
+def create_app(engine, store, *, program_store, settings_path, logs_dir, port=PORT, dev=False, capture=None,
+               confirm=None, web_dir=None, log=print):
     app = FastAPI(title="Jarvis", docs_url=None, redoc_url=None, openapi_url=None)
     preset_lock = threading.Lock()
     capture_lock = threading.Lock()
+    program_lock = threading.Lock()  # one confirmation box at a time, and one writer of programs.json
+    ask_person = confirm or confirm_box.ask_program
 
     @app.exception_handler(ApiError)
     async def api_error(request, exc):
@@ -322,8 +327,8 @@ def create_app(engine, store, *, settings_path, logs_dir, port=PORT, dev=False, 
             engine.presets, new_presets, name, engine.settings.match_threshold, must_work, skip=duplicates
         )
         errors, warnings = errors + match_errors, warnings + match_warnings
-        if preset is not None:  # saved from the web: the files it starts must exist, and be safe to start
-            problems = blocked_programs(preset) + missing_paths(preset)
+        if preset is not None:  # saved from the web: programs must be allowed, files must be openable
+            problems = unknown_programs(preset, program_store.programs) + open_problems(preset)
             errors = [{"field": f, "message": m} for f, m in problems] + errors
         if errors:
             raise ApiError(422, "invalid", errors)
@@ -384,6 +389,65 @@ def create_app(engine, store, *, settings_path, logs_dir, port=PORT, dev=False, 
         if not started:
             raise ApiError(409, "busy")
         return {"started": True}
+
+    # -- programs: the allow-list of what a `run` step may start --
+
+    def program_view(name, program):
+        return {"name": name, "path": program["path"], "args": program["args"]}
+
+    @app.get("/api/programs")
+    def list_programs():
+        return {"programs": [program_view(n, p) for n, p in program_store.programs.items()]}
+
+    @app.post("/api/programs", status_code=201)
+    def add_program(body: ProgramCreate):
+        """Add a program. The person at the PC must say Yes in a box on the desktop: nothing is saved
+        without it, whoever (or whatever page) sent this request."""
+        program = {"path": body.path, "args": body.args}
+        real, args = describe(program)
+        if not os.path.isfile(os.path.expandvars(body.path)):
+            raise ApiError(422, "invalid", [{"field": "path", "message": "file not found"}])
+        if body.name in program_store.programs:
+            raise ApiError(409, "exists", [{"field": "name", "message": "a program with this name already exists"}])
+        if not program_lock.acquire(blocking=False):
+            raise ApiError(409, "busy")  # a confirmation box is already open
+        try:
+            answer = ask_person(body.name, real, args)
+            if answer != confirm_box.YES:
+                raise ApiError(403, "declined" if answer == confirm_box.NO else "no_answer")
+            programs = copy.deepcopy(program_store.programs)
+            if body.name in programs:
+                raise ApiError(409, "exists", [{"field": "name", "message": "a program with this name already exists"}])
+            programs[body.name] = program
+            try:
+                program_store.save(programs)
+            except OSError:
+                raise ApiError(500, "could_not_save") from None
+        finally:
+            program_lock.release()
+        return {"name": body.name}
+
+    @app.delete("/api/programs/{name}")
+    def delete_program(name: Annotated[str, Path(pattern=NAME_PATTERN)]):
+        """Removing a program only shrinks the allow-list, so it needs no confirmation. A program that a
+        preset still uses stays: Jarvis would refuse to start with a preset that names a missing program."""
+        with program_lock:
+            programs = copy.deepcopy(program_store.programs)
+            if name not in programs:
+                raise ApiError(404, "not_found")
+            users = [
+                preset_name
+                for preset_name, preset in engine.presets.items()
+                if any(a["type"] == "run" and a["program"] == name for a in preset["actions"])
+            ]
+            if users:
+                raise ApiError(409, "in_use", [{"field": "name", "message": f"in use by preset '{users[0]}'"}])
+            del programs[name]
+            try:
+                program_store.save(programs)
+            except OSError:
+                raise ApiError(500, "could_not_save") from None
+        return {"name": name}
 
     @app.get("/api/action-types")
     def action_types():

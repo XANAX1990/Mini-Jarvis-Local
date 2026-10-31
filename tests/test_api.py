@@ -14,6 +14,7 @@ from jarvis.api import DEV_ORIGIN, MAX_BODY_BYTES, create_app
 from jarvis.matcher import match
 from jarvis.models import ACTION_TYPES, Action
 from jarvis.presets import validate_presets
+from jarvis.programs import ProgramStore
 from jarvis.server import ApiServer, PortInUse, ensure_port_free
 from jarvis.settings import Settings
 from jarvis.store import PresetStore
@@ -30,7 +31,7 @@ PRESETS = {
 
 
 class Env:
-    def __init__(self, tmp_path, dev=False, capture=None, web_dir=None):
+    def __init__(self, tmp_path, dev=False, capture=None, web_dir=None, confirm=None):
         self.dir = tmp_path
         self.presets_path = tmp_path / "presets.json"
         self.presets_path.write_text(json.dumps(PRESETS, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -40,9 +41,21 @@ class Env:
         self.engine = self.rig.engine
         self.rig.log_command = lambda *a: jarvis_log.log_command(*a, directory=self.logs)
         self.engine._log_command = self.rig.log_command
+        self.programs_path = tmp_path / "programs.json"
+        self.programs_path.write_text(json.dumps({"tool": {"path": EXE, "args": []}}, indent=2), encoding="utf-8")
+        self.program_store = ProgramStore(self.programs_path)
+        self.program_store.load()
+        self.asked = []  # what the confirmation box was asked: (name, path, args)
+        self.answer = "yes"  # what the person "clicks"; set to "no" or "timeout"
+
+        def person(name, path, args):
+            self.asked.append((name, path, list(args)))
+            return self.answer
+
         self.app = create_app(
-            self.engine, PresetStore(self.presets_path), settings_path=self.settings_path,
-            logs_dir=self.logs, dev=dev, capture=capture, web_dir=web_dir, log=lambda *_: None,
+            self.engine, PresetStore(self.presets_path), program_store=self.program_store,
+            settings_path=self.settings_path, logs_dir=self.logs, dev=dev, capture=capture,
+            confirm=confirm or person, web_dir=web_dir, log=lambda *_: None,
         )
         self.client = TestClient(self.app, base_url=BASE, raise_server_exceptions=False)
 
@@ -59,7 +72,7 @@ class Env:
         return self.client.delete(url, headers=headers or {**H, "Content-Type": "application/json"})
 
     def new_preset(self, **over):
-        return {"phrases": ["เปิดโน้ต"], "reply": "ได้เลย", "actions": [{"type": "run", "path": EXE}], **over}
+        return {"phrases": ["เปิดโน้ต"], "reply": "ได้เลย", "actions": [{"type": "run", "program": "tool"}], **over}
 
 
 @pytest.fixture
@@ -273,17 +286,21 @@ BAD_ACTIONS = [
     {"type": "chrome", "urls": ["https://ok.example", "file:///C:/x"]},
     {"type": "chrome", "urls": ["https://a b.example"]},
     {"type": "chrome", "urls": []},
-    {"type": "run", "path": "calc.exe"},
-    {"type": "run", "path": "C:\\Windows\\System32\\cmd.bat"},
-    {"type": "run", "path": EXE, "args": ["x"] * 21},
-    {"type": "run", "path": EXE, "args": ["x" * 501]},
-    {"type": "run", "path": EXE, "args": "not a list"},
+    {"type": "run", "path": EXE},  # a path in a preset: the program must come from programs.json
+    {"type": "run", "path": EXE, "args": ["x"]},
+    {"type": "run", "program": "tool", "args": ["x"]},  # args live in programs.json too
+    {"type": "run", "program": "tool", "path": EXE},
+    {"type": "run"},
+    {"type": "run", "program": "nope"},  # not in programs.json
+    {"type": "run", "program": "../tool"},
+    {"type": "run", "program": "Tool"},
+    {"type": "run", "program": ["tool"]},
     {"type": "open", "target": "relative\\file.txt"},
     {"type": "wait", "seconds": 31},
     {"type": "wait", "seconds": -1},
     {"type": "wait", "seconds": True},
     {"type": "format_disk"},
-    {"type": "run", "path": EXE, "shell": True},
+    {"type": "run", "program": "tool", "shell": True},
     {"type": "spending", "period": "year"},
 ]
 
@@ -301,7 +318,7 @@ def test_dangerous_or_malformed_actions_are_refused_and_nothing_is_saved(env, ac
 
 def test_valid_actions_of_every_type_are_accepted(env):
     actions = [
-        {"type": "run", "path": f'"{EXE}"', "args": ["--x", "y z"]},  # quotes from "Copy as path" are stripped
+        {"type": "run", "program": "tool"},
         {"type": "open", "target": str(env.dir)},
         {"type": "uri", "target": "discord:"},
         {"type": "chrome", "urls": ["https://example.com", "http://localhost:3000/x?y=1"]},
@@ -310,17 +327,20 @@ def test_valid_actions_of_every_type_are_accepted(env):
     ]
     r = env.post("/api/presets", {"name": "all", **env.new_preset(phrases=["ทดลองทุกอย่าง"], actions=actions)})
     assert r.status_code == 201, r.text
-    assert env.engine.presets["all"]["actions"][0]["path"] == EXE
+    assert env.engine.presets["all"]["actions"][0] == {"type": "run", "program": "tool"}
 
 
-def test_run_and_open_paths_must_exist(env, tmp_path):
-    ghost = str(tmp_path / "nothing.exe")
-    r = env.post("/api/presets", {"name": "x", **env.new_preset(actions=[{"type": "run", "path": ghost}])})
+def test_open_paths_must_exist_and_the_error_does_not_echo_them(env, tmp_path):
+    r = env.post("/api/presets", {"name": "x", **env.new_preset(actions=[{"type": "open", "target": str(tmp_path / "gone-folder")}])})
     assert r.status_code == 422
-    assert r.json()["fields"] == [{"field": "actions.0.path", "message": "file not found"}]
-    assert "nothing" not in r.text
-    r = env.post("/api/presets", {"name": "x", **env.new_preset(actions=[{"type": "open", "target": str(tmp_path / "gone")}])})
-    assert r.json()["fields"][0]["field"] == "actions.0.target"
+    assert r.json()["fields"] == [{"field": "actions.0.target", "message": "path not found"}]
+    assert "gone-folder" not in r.text
+
+
+def test_a_run_step_with_an_unknown_program_names_the_field(env):
+    r = env.post("/api/presets", {"name": "x", **env.new_preset(actions=[{"type": "run", "program": "nope"}])})
+    assert r.status_code == 422
+    assert r.json()["fields"] == [{"field": "actions.0.program", "message": "unknown program"}]
 
 
 def test_limits_on_phrases_reply_and_steps(env):
@@ -337,8 +357,8 @@ def test_limits_on_phrases_reply_and_steps(env):
 
 
 def test_a_field_called_path_keeps_its_name_in_the_error(env):
-    r = env.post("/api/presets", {"name": "bad", **env.new_preset(actions=[{"type": "run", "path": "calc.exe"}])})
-    assert r.json()["fields"] == [{"field": "actions.0.path", "message": "must be an absolute path"}]
+    r = env.post("/api/presets", {"name": "bad", **env.new_preset(actions=[{"type": "run", "program": "tool", "path": "calc.exe"}])})
+    assert r.json()["fields"] == [{"field": "actions.0.path", "message": "Extra inputs are not permitted"}]
 
 
 def test_validation_errors_name_the_field(env):
@@ -492,7 +512,7 @@ def free_port():
 def test_server_binds_to_loopback_only_and_serves_over_http(tmp_path):
     e = Env(tmp_path)
     port = free_port()
-    app = create_app(e.engine, PresetStore(e.presets_path), settings_path=e.settings_path,
+    app = create_app(e.engine, PresetStore(e.presets_path), program_store=e.program_store, settings_path=e.settings_path,
                      logs_dir=e.logs, port=port, log=lambda *_: None)
     server = ApiServer(app, port)
     assert server.config.host == "127.0.0.1"
@@ -605,10 +625,10 @@ def test_head_is_allowed_for_pages_only_and_still_needs_the_host(tmp_path):
 
 
 def test_a_missing_file_and_a_duplicate_phrase_are_reported_together(env, tmp_path):
-    ghost = str(tmp_path / "nothing.exe")
-    r = env.post("/api/presets", {"name": "x", **env.new_preset(phrases=["เปิดโหมดเกม"], actions=[{"type": "run", "path": ghost}])})
+    ghost = str(tmp_path / "nothing-here")
+    r = env.post("/api/presets", {"name": "x", **env.new_preset(phrases=["เปิดโหมดเกม"], actions=[{"type": "open", "target": ghost}])})
     assert r.status_code == 422
-    assert {f["field"] for f in r.json()["fields"]} == {"actions.0.path", "phrases"}
+    assert {f["field"] for f in r.json()["fields"]} == {"actions.0.target", "phrases"}
 
 
 # ---- mic test ----
@@ -727,82 +747,229 @@ def test_a_preset_that_already_has_a_broken_phrase_is_told_so_on_the_next_save(t
     e.engine.close()
 
 
-# ---- shells and scripts are refused from the web (audit: a preset could run any command) ----
+# ---- open: only folders and a short list of document and media types ----
 
-SYSTEM32 = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32")
+OPEN_OK = ["pdf", "txt", "md", "docx", "xlsx", "pptx", "png", "jpg", "jpeg", "gif", "mp3", "mp4", "PDF", "Jpg"]
+OPEN_NOT_ALLOWED = "only folders and these files can be opened from the web: pdf, txt, md, docx, xlsx, pptx, png, jpg, jpeg, gif, mp3, mp4"
 
 
-@pytest.mark.parametrize("path", [
-    os.path.join(SYSTEM32, "cmd.exe"),
-    os.path.join(SYSTEM32, "CMD.EXE"),
-    os.path.join(SYSTEM32, "WindowsPowerShell", "v1.0", "powershell.exe"),
-    "%SystemRoot%\\System32\\cmd.exe",
-    os.path.join(SYSTEM32, "wscript.exe"),
-    os.path.join(SYSTEM32, "mshta.exe"),
-    os.path.join(SYSTEM32, "rundll32.exe"),
-], ids=lambda p: p[-24:])
-def test_run_refuses_shells_and_script_hosts(env, path):
+def open_preset(env, target, name="doc"):
+    return env.post("/api/presets", {"name": name, **env.new_preset(actions=[{"type": "open", "target": str(target)}])})
+
+
+@pytest.mark.parametrize("suffix", OPEN_OK)
+def test_open_accepts_documents_and_media(env, tmp_path, suffix):
+    f = tmp_path / f"file.{suffix}"
+    f.write_text("x", encoding="utf-8")
+    assert open_preset(env, f).status_code == 201
+
+
+def test_open_accepts_a_folder(env, tmp_path):
+    assert open_preset(env, tmp_path).status_code == 201
+
+
+@pytest.mark.parametrize("name", [
+    "a.bat", "a.cmd", "a.ps1", "a.vbs", "a.js", "a.hta", "a.msi", "a.lnk", "a.url", "a.exe", "a.com", "a.scr",
+    "a.reg", "a.html", "a.svg", "A.BAT", "noextension", "a.pdf.exe", "a.txt.bat",
+])
+def test_open_refuses_everything_else(env, tmp_path, name):
+    f = tmp_path / name
+    f.write_text("x", encoding="utf-8")
     before = env.presets_path.read_bytes()
-    r = env.post("/api/presets", {"name": "sh", **env.new_preset(actions=[{"type": "run", "path": path, "args": ["/c", "echo", "hi"]}])})
-    assert r.status_code == 422, r.text
-    assert r.json()["fields"][0] == {
-        "field": "actions.0.path",
-        "message": "programs that run other commands (shells, script hosts) are not allowed from the web",
-    }
-    assert env.presets_path.read_bytes() == before and "sh" not in env.engine.presets
+    r = open_preset(env, f)
+    assert r.status_code == 422, name
+    assert r.json()["fields"] == [{"field": "actions.0.target", "message": OPEN_NOT_ALLOWED}]
+    assert env.presets_path.read_bytes() == before and "doc" not in env.engine.presets
 
 
-def test_open_refuses_scripts_and_shells(env, tmp_path):
-    for name in ("a.bat", "a.cmd", "a.ps1", "a.vbs", "a.js", "a.hta", "a.msi", "A.BAT"):
-        script = tmp_path / name
-        script.write_text("echo hi", encoding="utf-8")
-        r = env.post("/api/presets", {"name": "sc", **env.new_preset(actions=[{"type": "open", "target": str(script)}])})
-        assert r.status_code == 422, name
-        assert r.json()["fields"][0] == {"field": "actions.0.target", "message": "script files are not allowed from the web"}
-    r = env.post("/api/presets", {"name": "sc", **env.new_preset(actions=[{"type": "open", "target": os.path.join(SYSTEM32, "cmd.exe")}])})
-    assert r.status_code == 422 and "shells" in r.json()["fields"][0]["message"]
-    assert "sc" not in env.engine.presets
+def test_a_program_from_the_system_folder_cannot_be_opened_either(env):
+    calc = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "calc.exe")
+    assert open_preset(env, calc).status_code == 422
 
 
 def test_trailing_dots_and_spaces_do_not_hide_a_script(env, tmp_path):
     script = tmp_path / "x.bat"
     script.write_text("echo hi", encoding="utf-8")
-    r = env.post("/api/presets", {"name": "sc", **env.new_preset(actions=[{"type": "open", "target": str(script) + "."}])})
-    assert r.status_code == 422  # Windows would open x.bat
+    assert open_preset(env, str(script) + ".").status_code == 422  # Windows would open x.bat
 
 
-def test_ordinary_programs_files_and_folders_are_still_allowed(env, tmp_path):
-    note = tmp_path / "notes.txt"
-    note.write_text("hi", encoding="utf-8")
-    actions = [
-        {"type": "run", "path": os.path.join(SYSTEM32, "hostname.exe"), "args": ["-x"]},
-        {"type": "open", "target": str(note)},
-        {"type": "open", "target": str(tmp_path)},
-    ]
-    r = env.post("/api/presets", {"name": "fine", **env.new_preset(actions=actions)})
-    assert r.status_code == 201, r.text
+def test_a_link_named_like_a_document_is_judged_by_where_it_points(env, tmp_path):
+    link = tmp_path / "innocent.pdf"
+    try:
+        os.symlink(EXE, link)
+    except OSError:
+        pytest.skip("creating symbolic links needs a privilege this account does not have")
+    assert open_preset(env, link).status_code == 422
 
 
-def test_the_other_steps_of_a_refused_preset_are_still_reported(env, tmp_path):
-    ghost = str(tmp_path / "nothing.exe")
-    actions = [{"type": "run", "path": os.path.join(SYSTEM32, "cmd.exe")}, {"type": "run", "path": ghost}]
+def test_open_judges_the_resolved_path_not_the_name(env, tmp_path, monkeypatch):
+    """A link called innocent.pdf that resolves to a program is refused (realpath is simulated here)."""
+    link = tmp_path / "innocent.pdf"
+    link.write_text("x", encoding="utf-8")
+    monkeypatch.setattr("jarvis.models.os.path.realpath", lambda p: str(p).replace("innocent.pdf", "payload.exe"))
+    assert open_preset(env, link).status_code == 422
+
+
+def test_the_other_problems_of_a_refused_preset_are_still_reported(env, tmp_path):
+    script = tmp_path / "x.bat"
+    script.write_text("echo hi", encoding="utf-8")
+    actions = [{"type": "open", "target": str(script)}, {"type": "run", "program": "nope"}]
     r = env.post("/api/presets", {"name": "two", **env.new_preset(actions=actions)})
-    assert {f["field"] for f in r.json()["fields"]} == {"actions.0.path", "actions.1.path"}
+    assert {f["field"] for f in r.json()["fields"]} == {"actions.0.target", "actions.1.program"}
 
 
-def test_a_hand_edited_presets_file_may_still_use_a_shell(tmp_path):
-    """The deny-list guards the web, not presets.json: whoever edits the file can already do anything."""
-    from jarvis.presets import validate_presets
-
-    data = {"x": {"phrases": ["ทดสอบ"], "reply": "", "actions": [
-        {"type": "run", "path": os.path.join(SYSTEM32, "cmd.exe"), "args": ["/c", "echo"]}]}}
-    assert validate_presets(data)["x"]["actions"][0]["type"] == "run"
+def test_a_hand_edited_presets_file_may_still_open_a_shortcut(tmp_path):
+    """The allow-list guards the web, not presets.json: whoever edits the file can already do anything."""
+    data = {"x": {"phrases": ["ทดสอบ"], "reply": "", "actions": [{"type": "open", "target": "C:\\Users\\me\\app.lnk"}]}}
+    assert validate_presets(data)["x"]["actions"][0]["type"] == "open"
 
 
-def test_saving_a_preset_that_already_holds_a_shell_asks_for_it_to_be_removed(env):
+# ---- programs.json: the allow-list for `run` ----
+
+SYSTEM32 = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32")
+CALC = os.path.join(SYSTEM32, "calc.exe")
+
+
+def add_program(env, **over):
+    return env.post("/api/programs", {"name": "calc", "path": CALC, "args": ["--x", "y z"], **over})
+
+
+def test_list_programs(env):
+    assert env.get("/api/programs").json() == {"programs": [{"name": "tool", "path": EXE, "args": []}]}
+
+
+def test_a_run_step_names_a_program_and_the_preset_is_saved(env):
+    r = env.post("/api/presets", {"name": "p", **env.new_preset()})
+    assert r.status_code == 201
+    assert json.loads(env.presets_path.read_text("utf-8"))["p"]["actions"] == [{"type": "run", "program": "tool"}]
+
+
+def test_adding_a_program_asks_the_person_and_saves_it_on_yes(env):
+    r = add_program(env)
+    assert r.status_code == 201 and r.json() == {"name": "calc"}
+    assert env.asked == [("calc", os.path.realpath(CALC), ["--x", "y z"])]  # the real path and every argument
+    saved = json.loads(env.programs_path.read_text("utf-8"))
+    assert saved["calc"] == {"path": CALC, "args": ["--x", "y z"]} and "tool" in saved
+    assert env.program_store.programs["calc"]["args"] == ["--x", "y z"]  # in use at once
+    assert env.get("/api/programs").json()["programs"][-1]["name"] == "calc"
+    assert (env.dir / "programs.json.bak").exists() and not (env.dir / "programs.json.tmp").exists()
+
+
+def test_no_means_the_program_is_not_added(env):
+    env.answer = "no"
+    before = env.programs_path.read_bytes()
+    r = add_program(env)
+    assert r.status_code == 403 and r.json()["error"] == "declined"
+    assert env.programs_path.read_bytes() == before and "calc" not in env.program_store.programs
+    assert len(env.asked) == 1
+
+
+def test_no_answer_in_time_means_no(env):
+    env.answer = "timeout"
+    before = env.programs_path.read_bytes()
+    r = add_program(env)
+    assert r.status_code == 403 and r.json()["error"] == "no_answer"
+    assert env.programs_path.read_bytes() == before and "calc" not in env.program_store.programs
+
+
+def test_a_program_that_was_refused_cannot_be_used_by_a_preset(env):
+    env.answer = "no"
+    add_program(env)
+    r = env.post("/api/presets", {"name": "p", **env.new_preset(actions=[{"type": "run", "program": "calc"}])})
+    assert r.status_code == 422 and r.json()["fields"][0]["message"] == "unknown program"
+
+
+@pytest.mark.parametrize("over", [
+    {"path": "calc.exe"},  # not absolute
+    {"path": os.path.join(SYSTEM32, "drivers", "etc", "hosts")},  # not an .exe
+    {"path": os.path.join(SYSTEM32, "does-not-exist.exe")},
+    {"name": "Calc"}, {"name": "../calc"}, {"name": ""}, {"name": "x" * 33},
+    {"args": ["x"] * 21}, {"args": ["x" * 501]}, {"args": "not a list"}, {"args": [1]},
+    {"extra": 1}, {"path": ""},
+])
+def test_an_invalid_request_never_opens_a_box(env, over):
+    before = env.programs_path.read_bytes()
+    r = add_program(env, **over)
+    assert r.status_code == 422, over
+    assert env.asked == [] and env.programs_path.read_bytes() == before
+
+
+def test_a_missing_file_error_does_not_echo_the_path(env):
+    r = add_program(env, path=os.path.join(SYSTEM32, "secret-folder", "nope.exe"))
+    assert r.json()["fields"] == [{"field": "path", "message": "file not found"}]
+    assert "secret-folder" not in r.text
+
+
+def test_a_name_that_exists_is_a_conflict_and_opens_no_box(env):
+    r = add_program(env, name="tool")
+    assert r.status_code == 409 and r.json()["error"] == "exists" and env.asked == []
+
+
+def test_a_second_request_while_a_box_is_open_gets_409(tmp_path):
+    gate, started, calls = threading.Event(), threading.Event(), []
+
+    def slow(name, path, args):
+        calls.append(name)
+        started.set()
+        gate.wait(5)
+        return "yes"
+
+    e = Env(tmp_path, confirm=slow)
+    first = []
+    t = threading.Thread(target=lambda: first.append(add_program(e)))
+    t.start()
+    assert started.wait(3)
+    second = add_program(e, name="other")
+    assert second.status_code == 409 and second.json()["error"] == "busy"
+    assert calls == ["calc"]  # no second box
+    gate.set()
+    t.join(5)
+    assert first[0].status_code == 201
+    assert add_program(e, name="other").status_code == 201  # free again
+    e.engine.close()
+
+
+def test_the_person_decides_even_for_a_shell(env):
+    """There is no deny-list any more: the box is the control, and it shows exactly what would be added."""
     cmd = os.path.join(SYSTEM32, "cmd.exe")
-    env.engine.reload_presets({**env.engine.presets, "old": {"phrases": ["เก่ามาก"], "reply": "", "actions": [{"type": "run", "path": cmd}]}})
-    r = env.put("/api/presets/old", {"phrases": ["เก่ามาก"], "reply": "", "actions": [{"type": "run", "path": cmd}]})
-    assert r.status_code == 422
-    ok = env.put("/api/presets/old", {"phrases": ["เก่ามาก"], "reply": "", "actions": []})
-    assert ok.status_code == 200
+    r = add_program(env, name="shell", path=cmd, args=["/c", "echo", "hi"])
+    assert r.status_code == 201
+    assert env.asked[0][1].lower() == os.path.realpath(cmd).lower() and env.asked[0][2] == ["/c", "echo", "hi"]
+
+
+def test_deleting_a_program_needs_no_box(env):
+    add_program(env)
+    env.asked.clear()
+    r = env.delete("/api/programs/calc")
+    assert r.status_code == 200 and env.asked == []
+    assert "calc" not in json.loads(env.programs_path.read_text("utf-8"))
+    assert env.delete("/api/programs/calc").status_code == 404
+
+
+def test_a_program_a_preset_uses_cannot_be_deleted(env):
+    env.post("/api/presets", {"name": "p", **env.new_preset()})
+    r = env.delete("/api/programs/tool")
+    assert r.status_code == 409 and r.json()["error"] == "in_use"
+    assert "'p'" in r.json()["fields"][0]["message"]
+    assert "tool" in env.program_store.programs
+    env.delete("/api/presets/p")
+    assert env.delete("/api/programs/tool").status_code == 200  # free once nothing uses it
+
+
+def test_program_names_in_the_url_are_validated(env):
+    assert env.delete("/api/programs/..%2Ftool").status_code in (404, 405, 422)
+    assert env.delete("/api/programs/Tool").status_code == 422
+
+
+def test_programs_endpoints_need_the_same_headers_as_any_write(env):
+    assert env.client.post("/api/programs", json={"name": "calc", "path": CALC}, headers={"Origin": BASE}).status_code == 403
+    assert env.client.post("/api/programs", json={"name": "calc", "path": CALC}, headers={"X-Jarvis": "1", "Origin": "https://evil.example"}).status_code == 403
+    assert env.client.delete("/api/programs/tool").status_code == 403
+    assert env.asked == [] and "tool" in env.program_store.programs
+
+
+def test_the_test_button_runs_the_programs_the_preset_names(env):
+    env.post("/api/presets", {"name": "p", **env.new_preset()})
+    assert env.post("/api/presets/p/test").status_code == 200
+    assert env.engine.wait_idle()
+    assert env.rig.events == ["run-p"]  # the engine's runner got the saved preset, never a request body

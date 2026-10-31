@@ -93,7 +93,7 @@ export interface PresetData {
 
 export interface ActionField {
   name: string;
-  kind: "path" | "text" | "text-list" | "number" | "choice";
+  kind: "path" | "text" | "text-list" | "number" | "choice" | "program";
   required: boolean;
   min?: number;
   max?: number;
@@ -163,3 +163,17 @@ export const getSettings = () => request<SettingsData>("GET", "/api/settings");
 export const putSettings = (changes: Partial<SettingsData>) => request<SettingsData>("PUT", "/api/settings", changes);
 export const captureHotkey = () => request<HotkeyCapture>("POST", "/api/hotkey/capture");
 export const micTest = () => request<MicLevels>("POST", "/api/mic/test");
+
+// ---- programs: what a "run" step may start (programs.json) ----
+
+export interface ProgramData {
+  name: string;
+  path: string;
+  args: string[];
+}
+
+export const getPrograms = () => request<{ programs: ProgramData[] }>("GET", "/api/programs");
+/** Waits (up to 60 s) for the person at the PC to answer a Yes/No box on the Windows desktop. */
+export const addProgram = (program: ProgramData) => request<{ name: string }>("POST", "/api/programs", program);
+export const deleteProgram = (name: string) =>
+  request<{ name: string }>("DELETE", `/api/programs/${encodeURIComponent(name)}`);

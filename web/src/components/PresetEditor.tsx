@@ -9,6 +9,7 @@ import {
   deletePreset,
   getActionTypes,
   getPresets,
+  getPrograms,
   replacePreset,
   testPreset,
   type ActionData,
@@ -16,6 +17,7 @@ import {
   type FieldError,
   type PhraseWarning,
   type PresetData,
+  type ProgramData,
 } from "@/lib/api";
 import { describeField, messagesFor, thaiError } from "@/lib/errors";
 import { useJarvis } from "@/lib/jarvis";
@@ -34,6 +36,7 @@ export default function PresetEditor() {
   const { reachable } = useJarvis();
 
   const [types, setTypes] = useState<ActionType[]>([]);
+  const [programs, setPrograms] = useState<ProgramData[]>([]);
   const [saved, setSaved] = useState<PresetData | null>(null);
   const [draft, setDraft] = useState<PresetData | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "missing" | "failed">("loading");
@@ -44,10 +47,11 @@ export default function PresetEditor() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([getActionTypes(), getPresets()])
-      .then(([t, p]) => {
+    Promise.all([getActionTypes(), getPresets(), getPrograms()])
+      .then(([t, p, g]) => {
         if (cancelled) return;
         setTypes(t.types);
+        setPrograms(g.programs);
         const found = nameParam === null ? EMPTY : p.presets.find((x) => x.name === nameParam);
         if (!found) return setStatus("missing");
         setSaved(nameParam === null ? null : found);
@@ -275,6 +279,7 @@ export default function PresetEditor() {
               index={i}
               action={action}
               types={types}
+              programs={programs}
               errorsFor={errorsFor}
               first={i === 0}
               last={i === draft.actions.length - 1}
@@ -289,7 +294,7 @@ export default function PresetEditor() {
             <button
               key={t.type}
               type="button"
-              onClick={() => edit({ actions: [...draft.actions, blankAction(t)] })}
+              onClick={() => edit({ actions: [...draft.actions, blankAction(t, programs)] })}
               className="rounded-lg border border-dashed border-slate-600 px-3 py-2 text-sm text-slate-300 hover:border-sky-500 hover:text-sky-300"
             >
               + {t.label}

@@ -8,6 +8,7 @@ import { STATE_DOT, STATE_NAME } from "@/lib/labels";
 const LINKS = [
   { href: "/", label: "หน้าหลัก" },
   { href: "/presets/", label: "Presets" },
+  { href: "/programs/", label: "โปรแกรม" },
   { href: "/log/", label: "Log" },
   { href: "/settings/", label: "ตั้งค่า" },
 ];

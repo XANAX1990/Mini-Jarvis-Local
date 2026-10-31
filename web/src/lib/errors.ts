@@ -13,10 +13,11 @@ const EXACT: Record<string, string> = {
   "a preset with this name already exists": "มี preset ชื่อนี้อยู่แล้ว",
   "at least one preset must remain": "ต้องเหลือ preset อย่างน้อย 1 อัน",
   "Field required": "ต้องกรอก",
-  "programs that run other commands (shells, script hosts) are not allowed from the web":
-    "โปรแกรมที่สั่งรันคำสั่งอื่นได้ (เช่น cmd, PowerShell) ตั้งจากเว็บไม่ได้ เพื่อความปลอดภัย ถ้าจำเป็นจริง ๆ ให้แก้ในไฟล์ presets.json เอง",
-  "script files are not allowed from the web":
-    "ไฟล์สคริปต์ (.bat, .ps1, .js, .vbs ฯลฯ) ตั้งจากเว็บไม่ได้ เพื่อความปลอดภัย ถ้าจำเป็นจริง ๆ ให้แก้ในไฟล์ presets.json เอง",
+  "unknown program": "ไม่มีโปรแกรมนี้ในรายการ ไปเพิ่มที่หน้า โปรแกรม ก่อน",
+  "Extra inputs are not permitted": "ใส่ฟิลด์นี้ไม่ได้ (ขั้นตอนเปิดโปรแกรมเลือกได้จากรายการโปรแกรมเท่านั้น)",
+  "only folders and these files can be opened from the web: pdf, txt, md, docx, xlsx, pptx, png, jpg, jpeg, gif, mp3, mp4":
+    "จากเว็บเปิดได้เฉพาะโฟลเดอร์ และไฟล์ pdf, txt, md, docx, xlsx, pptx, png, jpg, jpeg, gif, mp3, mp4 เท่านั้น (ไม่รับ .lnk .url .bat .exe ฯลฯ)",
+  "a program with this name already exists": "มีโปรแกรมชื่อนี้อยู่แล้ว",
   "this key name is not recognized": "ระบบไม่รู้จักปุ่มนี้",
   "use one key or a combo like ctrl+alt+j": "ใช้ปุ่มเดียว หรือคอมโบ เช่น ctrl+alt+j",
   "in a combo, every key before the last must be ctrl, alt, shift or windows": "ในคอมโบ ปุ่มก่อนปุ่มสุดท้ายต้องเป็น ctrl, alt, shift หรือ windows",
@@ -25,6 +26,8 @@ const EXACT: Record<string, string> = {
 
 export function thaiError(message: string): string {
   if (EXACT[message]) return EXACT[message];
+  const inUse = /^in use by preset '(.*)'$/.exec(message);
+  if (inUse) return `ใช้อยู่ใน preset "${inUse[1]}" ต้องเอาออกจาก preset นั้นก่อน`;
   const used = /^'(.*)' is already used by preset '(.*)'$/.exec(message);
   if (used) return `วลี "${used[1]}" ถูกใช้ใน preset "${used[2]}" แล้ว ใช้ซ้ำกันไม่ได้`;
   const contains = /^'(.*)' contains the phrase '(.*)' of preset '(.*)': Jarvis could not tell which one you mean$/.exec(message);
@@ -66,6 +69,7 @@ const FIELD_NAME: Record<string, string> = {
   urls: "ลิงก์",
   seconds: "วินาที",
   period: "ช่วงเวลา",
+  program: "โปรแกรม",
   hotkey: "ปุ่มลัด",
   silence_ms: "เวลาเงียบก่อนหยุด",
   max_seconds: "ฟังนานสุด",

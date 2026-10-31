@@ -1,0 +1,33 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+  --background: #0b1120;
+  --foreground: #e2e8f0;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  /* system fonts only: nothing is fetched from the internet; Leelawadee UI/Tahoma cover Thai on Windows */
+  font-family: "Segoe UI", "Leelawadee UI", Tahoma, system-ui, sans-serif;
+}
+
+/* the mic button's ring while listening */
+@keyframes listening-ring {
+  0% { box-shadow: 0 0 0 0 rgb(239 68 68 / 0.6); }
+  100% { box-shadow: 0 0 0 28px rgb(239 68 68 / 0); }
+}
+
+.listening-ring {
+  animation: listening-ring 1.2s ease-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .listening-ring { animation: none; }
+}

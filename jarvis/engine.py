@@ -40,6 +40,7 @@ class Engine:
         self._armed = False
         self._capturing = False
         self._phase = IDLE
+        self._current = None  # name of the preset being run
         self._stop = threading.Event()
         self._last = None
         self._last_hotkey_at = None
@@ -61,6 +62,11 @@ class Engine:
     @property
     def settings(self):
         return self._settings
+
+    @property
+    def current_preset(self):
+        """The preset being run right now, else None."""
+        return self._current if self._phase == RUNNING else None
 
     @property
     def presets(self):
@@ -116,6 +122,7 @@ class Engine:
             if self._phase != IDLE:
                 return False
             self._phase = RUNNING
+            self._current = name
         self._jobs.put(("run", name, source))
         return True
 
@@ -177,6 +184,7 @@ class Engine:
         with self._lock:
             self._last = entry
             self._phase = IDLE
+            self._current = None
 
     def _record_result(self, source, transcript, preset, score, result, seconds):
         try:
@@ -230,6 +238,7 @@ class Engine:
             return
         with self._lock:
             self._phase = RUNNING
+            self._current = name
         self._log(f"{name}  (heard {text!r}, score {score:.0f})")
         self._speak(self._spoken_reply(presets[name]))  # before the preset: it may wait/sleep
         failures = self._run_preset(presets, name, self._log)

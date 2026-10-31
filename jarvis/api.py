@@ -7,12 +7,14 @@ validated by pydantic with unknown fields refused, and short errors with no path
 import copy
 import threading
 from datetime import datetime
+from pathlib import Path as FilePath
 from typing import Annotated, Optional, Union
 
 from fastapi import FastAPI, Path, Query
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr, ValidationError, field_validator
 from rapidfuzz import fuzz
 from starlette.datastructures import Headers, MutableHeaders
@@ -30,6 +32,18 @@ SIMILAR_SCORE = 90
 MAX_WARNINGS = 20
 UUID_PATTERN = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 CAPTURE_SECONDS = 10
+WEB_DIR = FilePath(__file__).resolve().parent.parent / "web" / "out"
+# The static export inlines its bootstrap scripts, hence 'unsafe-inline'; nothing is loaded from elsewhere.
+CSP = (
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+)
+MISSING_WEB = (
+    '<!doctype html><meta charset="utf-8"><title>Jarvis</title>'
+    "<body style=\"font-family:sans-serif;background:#0b1120;color:#e2e8f0;padding:2rem\">"
+    "<h1>Jarvis</h1><p>The web UI is not built yet. Run <code>npm run build</code> in <code>web/</code>, "
+    "then restart Jarvis.</p><p>API: <a href=\"/api/state\" style=\"color:#38bdf8\">/api/state</a></p>"
+)
 
 
 # ---- security middleware ----
@@ -86,7 +100,7 @@ class SecurityMiddleware:
         headers = Headers(scope=scope)
         if headers.get("host", "").lower() not in self.hosts:
             return 403, "forbidden_host"
-        if scope["method"] == "GET":
+        if scope["method"] in ("GET", "HEAD"):  # HEAD: the browser's link prefetch; it changes nothing
             return None
         if headers.get("x-jarvis") != "1":
             return 403, "missing_x_jarvis"
@@ -109,6 +123,9 @@ class SecurityMiddleware:
                 headers["Referrer-Policy"] = "no-referrer"
                 if scope["path"].startswith("/api/"):
                     headers["Cache-Control"] = "no-store"
+                else:
+                    headers["Cache-Control"] = "no-cache"  # revalidate, so a rebuilt UI shows up at once
+                    headers["Content-Security-Policy"] = CSP
             await send(message)
 
         return wrapped
@@ -200,7 +217,8 @@ def check_phrases(presets, name):
 
 # ---- the app ----
 
-def create_app(engine, store, *, settings_path, logs_dir, port=PORT, dev=False, capture=None, log=print):
+def create_app(engine, store, *, settings_path, logs_dir, port=PORT, dev=False, capture=None, web_dir=None,
+               log=print):
     app = FastAPI(title="Jarvis", docs_url=None, redoc_url=None, openapi_url=None)
     preset_lock = threading.Lock()
     capture_lock = threading.Lock()
@@ -226,6 +244,7 @@ def create_app(engine, store, *, settings_path, logs_dir, port=PORT, dev=False, 
             "armed": engine.armed,
             "state": engine.state,
             "hotkey": engine.settings.hotkey,
+            "preset": engine.current_preset,
             "last": None if last is None else {k: last.get(k) for k in ("time", "transcript", "preset", "score", "result")},
         }
 
@@ -398,6 +417,14 @@ def create_app(engine, store, *, settings_path, logs_dir, port=PORT, dev=False, 
             raise ApiError(408, "timeout")
         hotkey, reason = validate_hotkey(combo)
         return {"hotkey": hotkey or combo, "ok": reason is None, "reason": reason}
+
+    if web_dir is not None:  # last, so every /api route wins
+        if FilePath(web_dir).is_dir():
+            app.mount("/", StaticFiles(directory=web_dir, html=True), name="web")
+        else:
+            @app.get("/", include_in_schema=False)
+            def web_not_built():
+                return HTMLResponse(MISSING_WEB)
 
     app.add_middleware(SecurityMiddleware, port=port, dev=dev)
     if dev:  # outermost: answers the preflight for the dev web server, and nobody else

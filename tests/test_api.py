@@ -1,6 +1,7 @@
 import json
 import socket
 import sys
+import threading
 import urllib.request
 from typing import get_args
 
@@ -28,7 +29,7 @@ PRESETS = {
 
 
 class Env:
-    def __init__(self, tmp_path, dev=False, capture=None):
+    def __init__(self, tmp_path, dev=False, capture=None, web_dir=None):
         self.dir = tmp_path
         self.presets_path = tmp_path / "presets.json"
         self.presets_path.write_text(json.dumps(PRESETS, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -40,7 +41,7 @@ class Env:
         self.engine._log_command = self.rig.log_command
         self.app = create_app(
             self.engine, PresetStore(self.presets_path), settings_path=self.settings_path,
-            logs_dir=self.logs, dev=dev, capture=capture, log=lambda *_: None,
+            logs_dir=self.logs, dev=dev, capture=capture, web_dir=web_dir, log=lambda *_: None,
         )
         self.client = TestClient(self.app, base_url=BASE, raise_server_exceptions=False)
 
@@ -168,7 +169,7 @@ def test_errors_are_short_and_leak_nothing(env):
 
 def test_state(env):
     body = env.get("/api/state").json()
-    assert body == {"armed": False, "state": "off", "hotkey": "caps lock", "last": None}
+    assert body == {"armed": False, "state": "off", "hotkey": "caps lock", "preset": None, "last": None}
 
 
 def test_armed_switch_and_toggle(env):
@@ -502,3 +503,95 @@ def test_server_binds_to_loopback_only_and_serves_over_http(tmp_path):
         server.stop()
         e.engine.close()
     ensure_port_free(port)
+
+
+# ---- the static web UI (web/out/) ----
+
+def web_env(tmp_path):
+    out = tmp_path / "out"
+    (out / "presets").mkdir(parents=True)
+    (out / "index.html").write_text("<h1>home</h1>", encoding="utf-8")
+    (out / "presets" / "index.html").write_text("<h1>presets</h1>", encoding="utf-8")
+    (out / "_next").mkdir()
+    (out / "_next" / "app.js").write_text("console.log(1)", encoding="utf-8")
+    (tmp_path / "secret.txt").write_text("top secret", encoding="utf-8")
+    return Env(tmp_path, web_dir=out)
+
+
+def test_root_and_folder_pages_are_served(tmp_path):
+    e = web_env(tmp_path)
+    assert e.get("/").text == "<h1>home</h1>"
+    assert e.get("/presets/").text == "<h1>presets</h1>"
+    assert e.get("/presets").text == "<h1>presets</h1>"  # redirected to /presets/
+    assert e.get("/_next/app.js").status_code == 200
+    assert e.get("/nothing/").status_code == 404
+    e.engine.close()
+
+
+def test_web_pages_get_a_csp_and_revalidate_but_the_api_does_not(tmp_path):
+    e = web_env(tmp_path)
+    page = e.get("/")
+    assert "default-src 'self'" in page.headers["content-security-policy"]
+    assert "frame-ancestors 'none'" in page.headers["content-security-policy"]
+    assert page.headers["cache-control"] == "no-cache"
+    assert "content-security-policy" not in e.get("/api/state").headers
+    e.engine.close()
+
+
+def test_the_api_wins_over_the_static_files_and_unknown_api_paths_are_404(tmp_path):
+    e = web_env(tmp_path)
+    assert e.get("/api/state").json()["state"] == "off"
+    assert e.get("/api/nope").status_code == 404
+    e.engine.close()
+
+
+def test_static_files_cannot_escape_the_web_folder(tmp_path):
+    e = web_env(tmp_path)
+    for url in ("/../secret.txt", "/%2e%2e/secret.txt", "/..%2fsecret.txt", "/_next/../../secret.txt"):
+        r = e.get(url)
+        assert "top secret" not in r.text, url
+    e.engine.close()
+
+
+def test_static_files_still_need_the_right_host_and_refuse_writes(tmp_path):
+    e = web_env(tmp_path)
+    assert e.get("/", headers={"Host": "evil.example:3003"}).status_code == 403
+    assert e.post("/").status_code == 405
+    assert e.client.post("/", json={}).status_code == 403  # no X-Jarvis
+    e.engine.close()
+
+
+def test_without_a_build_the_root_explains_what_to_run(tmp_path):
+    e = Env(tmp_path, web_dir=tmp_path / "missing")
+    page = e.get("/")
+    assert page.status_code == 200 and "npm run build" in page.text
+    assert e.get("/api/state").status_code == 200
+    e.engine.close()
+
+
+def test_state_names_the_preset_while_it_runs(env):
+    gate = threading.Event()
+    started = threading.Event()
+
+    def slow(presets, name, log=print):
+        started.set()
+        gate.wait(2)
+        return 0
+
+    env.engine._run_preset = slow
+    env.post("/api/presets/game/test")
+    assert started.wait(2)
+    body = env.get("/api/state").json()
+    assert (body["state"], body["preset"]) == ("running", "game")
+    gate.set()
+    assert env.engine.wait_idle()
+    assert env.get("/api/state").json()["preset"] is None
+
+
+def test_head_is_allowed_for_pages_only_and_still_needs_the_host(tmp_path):
+    e = web_env(tmp_path)
+    assert e.client.head("/presets/").status_code == 200  # the browser's link prefetch
+    assert e.client.head("/api/state").status_code in (404, 405)  # API routes never answer HEAD
+    assert e.client.head("/presets/", headers={"Host": "evil.example:3003"}).status_code == 403
+    assert e.client.request("OPTIONS", "/presets/").status_code == 403
+    e.engine.close()

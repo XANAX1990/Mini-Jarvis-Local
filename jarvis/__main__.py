@@ -136,7 +136,7 @@ def cmd_listen(args, presets):
     web = None
     if not args.no_web:
         app = api.create_app(
-            engine, PresetStore(), settings_path=SETTINGS_PATH, logs_dir=LOGS_DIR,
+            engine, PresetStore(), settings_path=SETTINGS_PATH, logs_dir=LOGS_DIR, web_dir=api.WEB_DIR,
             dev=os.environ.get("JARVIS_DEV") == "1",
         )
         web = server.ApiServer(app, api.PORT)

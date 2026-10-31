@@ -91,6 +91,10 @@ The first run of `listen` downloads the Whisper model (a few hundred MB) from Hu
 | `listen [--device cuda] [--threshold 70]` | The full loop: tap the hotkey, speak, run the matching preset. Options live in `settings.json` (copy `settings.example.json`) |
 | `autostart install\|remove\|status` | Start `listen` at login (shortcut in the Startup folder) |
 
+### Web UI
+
+Build it once, then open `http://127.0.0.1:3003` while `listen` is running: `cd web && npm ci && npm run build`. The home page has a mic button (click to talk, click again to stop early), the "Jarvis ฟังอยู่" master switch, the last command and today's last 5 log lines. If `web/out/` is missing, `/` says to run the build. More in [web/README.md](web/README.md).
+
 ### Local API (`listen` starts it; `--no-web` skips it)
 
 `listen` serves a JSON API on `http://127.0.0.1:3003` (this PC only; never `0.0.0.0`). It can start programs, so every request is checked: `Host` must be `127.0.0.1:3003` or `localhost:3003`, and every POST/PUT/DELETE needs `Content-Type: application/json`, `X-Jarvis: 1` and an `Origin` of the same address. There is no CORS, except `JARVIS_DEV=1` (allows `http://localhost:3004` for `next dev`).

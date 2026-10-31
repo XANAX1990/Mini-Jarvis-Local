@@ -37,7 +37,7 @@ Security rules and audit checklist for Jarvis (local Python voice launcher on Wi
 ### Local web API (`127.0.0.1:3003`)
 - [ ] uvicorn binds to `127.0.0.1` only, never `0.0.0.0`. No ngrok, no port forwarding, never deployed.
 - [ ] **Host allow-list:** every request whose `Host` header isn't `127.0.0.1:3003` or `localhost:3003` → 403 (blocks DNS rebinding).
-- [ ] **Every non-GET request** (POST/PUT/DELETE) must have:
+- [ ] **Every request except GET and HEAD** (POST/PUT/DELETE/OPTIONS...) must have (HEAD is only the browser's link prefetch of static pages; API routes don't answer it, and the Host check still applies):
   - header `X-Jarvis: 1` (a page on another site can't add a custom header without a CORS preflight, which we never approve)
   - `Origin` equal to `http://127.0.0.1:3003` or `http://localhost:3003` (plus `http://localhost:3004` only when `JARVIS_DEV=1`); missing or other → 403
   - `Content-Type: application/json`

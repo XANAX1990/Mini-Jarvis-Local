@@ -118,11 +118,17 @@ def test_answer_survives_a_bug_in_the_fetch():
 class Handler(BaseHTTPRequestHandler):
     requests = []
     mode = "ok"
+    redirect_to = ""
 
     def do_GET(self):
         Handler.requests.append((self.path, self.headers.get("X-Local-Token")))
         if Handler.mode == "401":
             self.send_response(401)
+            self.end_headers()
+            return
+        if Handler.mode == "redirect":
+            self.send_response(302)
+            self.send_header("Location", Handler.redirect_to)
             self.end_headers()
             return
         body = b"not json" if Handler.mode == "garbage" else json.dumps(
@@ -163,6 +169,33 @@ def test_wrong_token_is_a_401_and_is_said_as_cannot_connect(server):
         spending.fetch_summary("2026-10-01", "2026-10-31", env=env_for(server, "wrong"))
     assert e.value.spoken == SAY_CANNOT_CONNECT
     assert "401" in str(e.value) and "wrong" not in str(e.value)
+
+
+def test_a_redirect_is_not_followed_so_the_token_never_leaves(server):
+    class Sink(BaseHTTPRequestHandler):
+        seen = []
+
+        def do_GET(self):
+            Sink.seen.append(self.headers.get("X-Local-Token"))
+            self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    sink = HTTPServer(("127.0.0.1", 0), Sink)
+    threading.Thread(target=sink.serve_forever, daemon=True).start()
+    try:
+        Handler.mode = "redirect"
+        Handler.redirect_to = f"http://localhost:{sink.server_address[1]}/steal"
+        with pytest.raises(SpendingError) as e:
+            spending.fetch_summary("2026-10-01", "2026-10-31", env=env_for(server, "tok-123"))
+        assert e.value.spoken == SAY_CANNOT_CONNECT and "302" in str(e.value) and "tok-123" not in str(e.value)
+        assert Sink.seen == []  # the other host was never contacted
+    finally:
+        sink.shutdown()
+        sink.server_close()
+        Handler.mode = "ok"
 
 
 @pytest.mark.parametrize("mode", ["500", "garbage"])

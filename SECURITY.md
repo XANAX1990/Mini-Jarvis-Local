@@ -59,7 +59,7 @@ Security rules and audit checklist for Jarvis (local Python voice launcher on Wi
 
 ### Slip Tracker integration (spending questions)
 - [ ] `SLIPS_API_URL` and `SLIPS_API_TOKEN` come from Jarvis' `.env` only; never in `presets.json`, code, logs or error messages.
-- [ ] `SLIPS_API_URL` must point to `127.0.0.1` / `localhost`; refuse any other host.
+- [ ] `SLIPS_API_URL` must point to `127.0.0.1` / `localhost`; refuse any other host. Redirects are never followed (urllib would forward `X-Local-Token` to the new host).
 - [ ] Jarvis only calls the read-only `GET /summary`; it never sends writes to Slip Tracker.
 - [ ] 5 s timeout; on failure Jarvis speaks a generic message ("ระบบสลิปยังไม่เปิด"), details go to the log without the token.
 - [ ] Spoken amounts are not written to the transcript log (only the question and which preset ran).

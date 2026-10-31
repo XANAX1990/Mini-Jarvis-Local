@@ -27,6 +27,16 @@ SAY_DOWN = "ระบบสลิปยังไม่เปิด"
 SAY_CANNOT_CONNECT = "เชื่อมระบบสลิปไม่ได้"
 
 
+class _NoRedirects(urllib.request.HTTPRedirectHandler):
+    """Never follow a redirect: urllib would send X-Local-Token to wherever it points."""
+
+    def redirect_request(self, *args, **kwargs):
+        return None  # the 3xx answer then surfaces as an HTTPError
+
+
+_opener = urllib.request.build_opener(_NoRedirects)
+
+
 class SpendingError(Exception):
     """The API could not be read. `spoken` is what Jarvis says; the message is for the log."""
 
@@ -83,7 +93,7 @@ def fetch_summary(first, last, env=None, timeout=TIMEOUT_SECONDS):
     url = f"{_api_url(env)}/summary?" + urllib.parse.urlencode({"from": first, "to": last})
     request = urllib.request.Request(url, headers={"X-Local-Token": token})
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with _opener.open(request, timeout=timeout) as response:
             data = json.load(response)
     except urllib.error.HTTPError as e:  # before URLError: it is a subclass
         raise SpendingError(f"Slip Tracker answered HTTP {e.code}", SAY_CANNOT_CONNECT) from None

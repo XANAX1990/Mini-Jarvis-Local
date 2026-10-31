@@ -13,3 +13,9 @@
 - **Root cause:** `pythonw` shows no console, so starting the shortcut again looks like nothing happened. Several copies listened to the same F9 and ran every preset more than once.
 - **Fix:** `jarvis/single.py` takes a Windows named mutex at the start of `listen`; a second copy prints a message to `logs/listen.log` and exits with code 1. The OS frees the mutex when the process dies, so there is no stale lock file.
 - **Rule:** A background app with no window needs a single-instance guard and a log file. Don't kill by image name (`taskkill /IM pythonw.exe`) when testing: it takes down every copy; stop only the PIDs you started.
+
+## 2026-10-31 · Jarvis transcribed its own spoken reply
+- **Symptom:** the log had a line with transcript `ไม่ได้ยิน` (Jarvis' own reply for "didn't hear you"), result `no_match`, score 37.5.
+- **Root cause:** replies are spoken in a background thread (`Speaker.speak` returns at once). With tap-to-talk the next tap can come while the reply is still playing, so the mic recorded the speaker.
+- **Fix:** the engine calls `wait_speaking` (`Speaker.wait`) before the start beep, so recording only begins when nothing is playing.
+- **Rule:** anything that plays sound must finish before the mic opens; test the mic path with a reply still playing, not only with silence.

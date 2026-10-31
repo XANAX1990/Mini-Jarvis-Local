@@ -9,6 +9,10 @@ import subprocess
 import time
 from pathlib import Path
 
+from pydantic import TypeAdapter, ValidationError
+
+from jarvis.models import Name, Preset
+
 PRESETS_PATH = Path(__file__).resolve().parent.parent / "presets.json"
 
 CHROME_CANDIDATES = [
@@ -17,68 +21,42 @@ CHROME_CANDIDATES = [
     r"%LocalAppData%\Google\Chrome\Application\chrome.exe",
 ]
 
-# action type -> (required field, expected type)
-_REQUIRED = {
-    "run": ("path", str),
-    "open": ("target", str),
-    "uri": ("target", str),
-    "chrome": ("urls", list),
-    "wait": ("seconds", (int, float)),
-    "spending": ("period", str),
-}
-
 
 class PresetError(Exception):
     """Invalid presets file or unknown preset name."""
 
 
-def _validate_action(where, action):
-    if not isinstance(action, dict):
-        raise PresetError(f"{where}: action must be an object")
-    kind = action.get("type")
-    if kind not in _REQUIRED:
-        raise PresetError(
-            f"{where}: unknown action type {kind!r} (expected one of {', '.join(_REQUIRED)})"
-        )
-    field, expected = _REQUIRED[kind]
-    if field not in action:
-        raise PresetError(f"{where}: '{kind}' action is missing '{field}'")
-    value = action[field]
-    if isinstance(value, bool) or not isinstance(value, expected):
-        raise PresetError(f"{where}: '{field}' has the wrong type")
-    if kind == "spending" and value not in ("today", "week", "month"):
-        raise PresetError(f"{where}: 'period' must be today, week or month")
-    if kind == "wait" and value < 0:
-        raise PresetError(f"{where}: 'seconds' must be >= 0")
-    if kind == "chrome":
-        if not value or not all(isinstance(u, str) and u for u in value):
-            raise PresetError(f"{where}: 'urls' must be a non-empty list of strings")
-    if kind == "run":
-        args = action.get("args", [])
-        if not isinstance(args, list) or not all(isinstance(a, str) for a in args):
-            raise PresetError(f"{where}: 'args' must be a list of strings")
+_PRESETS = TypeAdapter(dict[Name, Preset])
+_ACTION_TYPES = {"run", "open", "uri", "chrome", "wait", "spending"}
+
+
+def describe_error(loc, message):
+    """One validation error as a short sentence: where it is and what is wrong. Never echoes input."""
+    message = message.removeprefix("Value error, ")
+    parts = []
+    for item in loc:
+        if isinstance(item, str) and item in _ACTION_TYPES and parts and isinstance(parts[-1], int):
+            continue  # the discriminator tag pydantic adds after the action index
+        parts.append(item)
+    text = []
+    for item in parts:
+        if isinstance(item, int):
+            text.append(f"[{item + 1}]")
+        else:
+            text.append(("." if text else "") + item)
+    return f"{''.join(text) or 'presets'}: {message}"
 
 
 def validate_presets(data):
-    """Return `data` if valid, else raise PresetError with a clear message."""
+    """Return `data` as plain dicts if valid, else raise PresetError with a clear message."""
     if not isinstance(data, dict) or not data:
         raise PresetError("presets file must be a non-empty object of presets")
-    for name, preset in data.items():
-        if not isinstance(preset, dict):
-            raise PresetError(f"preset '{name}': must be an object")
-        phrases = preset.get("phrases")
-        if not isinstance(phrases, list) or not phrases or not all(
-            isinstance(p, str) and p.strip() for p in phrases
-        ):
-            raise PresetError(f"preset '{name}': 'phrases' must be a non-empty list of strings")
-        if not isinstance(preset.get("reply"), str):
-            raise PresetError(f"preset '{name}': 'reply' must be a string")
-        actions = preset.get("actions")
-        if not isinstance(actions, list):
-            raise PresetError(f"preset '{name}': 'actions' must be a list")
-        for i, action in enumerate(actions, 1):
-            _validate_action(f"preset '{name}' action {i}", action)
-    return data
+    try:
+        models = _PRESETS.validate_python(data)
+    except ValidationError as e:
+        first = e.errors()[0]
+        raise PresetError(describe_error(first["loc"], first["msg"])) from None
+    return {name: preset.model_dump(exclude_unset=True) for name, preset in models.items()}
 
 
 def load_presets(path=PRESETS_PATH):

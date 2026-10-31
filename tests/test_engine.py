@@ -18,6 +18,9 @@ class FakeHotkeys:
         self.calls = []
         self.callback = None
 
+    def check(self, key):
+        return None
+
     def apply(self, key, callback):
         self.calls.append(key)
         self.callback = callback
@@ -26,7 +29,7 @@ class FakeHotkeys:
 class Rig:
     """An Engine whose mic, Whisper and speakers are fakes the test controls."""
 
-    def __init__(self, outcome=SPEECH_DONE, samples=CLIP, text="เปิดโหมดเกม", score=100.0,
+    def __init__(self, presets=None, outcome=SPEECH_DONE, samples=CLIP, text="เปิดโหมดเกม", score=100.0,
                  match_name="game", settings=None, failures=0):
         self.events = []
         self.logged = []
@@ -38,7 +41,7 @@ class Rig:
         self.outcome, self.samples, self.text, self.score = outcome, samples, text, score
         self.match_name, self.failures = match_name, failures
         self.engine = Engine(
-            PRESETS,
+            presets or PRESETS,
             settings or Settings(),
             record=self.record,
             transcribe=self.transcribe,
@@ -345,4 +348,14 @@ def test_a_hotkey_the_keyboard_library_rejects_does_not_crash_jarvis():
     r.engine._hotkeys = Rejecting()
     r.engine.set_armed(True)  # logs, does not raise
     assert r.engine.state == "idle"
+    r.engine.close()
+
+
+def test_the_mic_waits_for_the_spoken_reply_to_finish():
+    r = Rig()
+    r.engine._wait_speaking = lambda: r.events.append("wait-speaking")
+    r.engine.set_armed(True)
+    r.tap()
+    assert r.engine.wait_idle()
+    assert r.events[:2] == ["wait-speaking", "beep-start"]
     r.engine.close()

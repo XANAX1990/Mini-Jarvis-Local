@@ -48,6 +48,52 @@ def log_command(source, transcript, preset, score, result, seconds, directory=No
     return entry
 
 
+MAX_ENTRIES_PER_DAY = 2000
+
+
+def today(now=None):
+    return (now or datetime.now(TIMEZONE)).astimezone(TIMEZONE).strftime("%Y-%m-%d")
+
+
+def list_days(directory=None):
+    """Days (YYYY-MM-DD, newest first) that have a log file."""
+    directory = Path(directory or LOGS_DIR)
+    if not directory.is_dir():
+        return []
+    return sorted((p.stem for p in directory.glob("*.jsonl") if _DAY_FILE.fullmatch(p.name)), reverse=True)
+
+
+def read_day(day, directory=None):
+    """Entries of one day, oldest first. `day` must be YYYY-MM-DD (it becomes part of a file name).
+
+    Lines that are not a JSON object are skipped."""
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+        raise ValueError("day must be YYYY-MM-DD")
+    path = Path(directory or LOGS_DIR) / f"{day}.jsonl"
+    entries = []
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except FileNotFoundError:
+        return []
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(entry, dict):
+            entries.append(entry)
+    return entries[-MAX_ENTRIES_PER_DAY:]
+
+
+def find_entry(entry_id, directory=None):
+    """The entry with this id from any day on disk (newest day first), or None."""
+    for day in list_days(directory):
+        for entry in read_day(day, directory):
+            if entry.get("id") == entry_id:
+                return entry
+    return None
+
+
 def prune_daily_logs(directory=None, days=RETENTION_DAYS, now=None):
     """Delete logs/YYYY-MM-DD.jsonl files older than `days`. Returns how many.
 

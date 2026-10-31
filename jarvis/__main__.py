@@ -1,4 +1,5 @@
 import argparse
+import os
 import sys
 import time
 from dataclasses import replace
@@ -37,6 +38,7 @@ def build_parser():
     say.add_argument("text")
     ls = sub.add_parser("listen", help="tap the hotkey, speak, run the matching preset")
     ls.add_argument("--model", default="small", help="Whisper model size (default: small)")
+    ls.add_argument("--no-web", action="store_true", help="do not start the web API on 127.0.0.1:3003")
     ls.add_argument(
         "--threshold",
         type=threshold_arg,
@@ -83,17 +85,27 @@ def redirect_output_if_windowless():
 
 
 def cmd_listen(args, presets):
-    from jarvis import audio, single, stt
+    from jarvis import api, audio, single, stt
     from jarvis.engine import Engine
     from jarvis.hotkey import Hotkeys
-    from jarvis.log import RETENTION_DAYS, log_command, prune_command_files, prune_commands, prune_daily_logs
+    from jarvis.log import LOGS_DIR, RETENTION_DAYS, log_command, prune_command_files, prune_commands, prune_daily_logs
     from jarvis.matcher import match
-    from jarvis.settings import load_settings
+    from jarvis.settings import SETTINGS_PATH, load_settings
+    from jarvis.store import PresetStore
     from jarvis.tts import Speaker
 
     if single.acquire() is None:
         print("Jarvis is already running - not starting a second copy.")
         return 1
+
+    if not args.no_web:
+        from jarvis import server
+
+        try:
+            server.ensure_port_free(api.PORT)
+        except server.PortInUse:
+            print(f"Jarvis is already running (port {api.PORT} is taken) - not starting a second copy.")
+            return 1
 
     settings = load_settings()
     if args.threshold is not None:
@@ -119,7 +131,17 @@ def cmd_listen(args, presets):
         log_command=log_command,
         hotkeys=Hotkeys(),
         build_prompt=stt.build_prompt,
+        wait_speaking=speaker.wait,
     )
+    web = None
+    if not args.no_web:
+        app = api.create_app(
+            engine, PresetStore(), settings_path=SETTINGS_PATH, logs_dir=LOGS_DIR,
+            dev=os.environ.get("JARVIS_DEV") == "1",
+        )
+        web = server.ApiServer(app, api.PORT)
+        web.start()
+        print(f"Web API on http://127.0.0.1:{api.PORT}")
     engine.set_armed(settings.armed_on_start)
     state = f"tap {settings.hotkey}" if settings.armed_on_start else "switched off (armed_on_start is false)"
     print(f"Ready: {state} and speak. Ctrl+C to quit.")
@@ -130,6 +152,8 @@ def cmd_listen(args, presets):
         print("\nbye")
     finally:
         engine.close()
+        if web:
+            web.stop()
 
 
 def cmd_transcribe(args, presets):

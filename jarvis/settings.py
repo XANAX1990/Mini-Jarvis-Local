@@ -4,10 +4,18 @@ A bad value falls back to its default and is reported through `log`; Jarvis stil
 settings.json is git-ignored (settings.example.json is the committed template).
 """
 import json
+import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from jarvis.matcher import DEFAULT_THRESHOLD, MIN_THRESHOLD
+
+BOUNDS = {  # (low, high), shared with the web API
+    "silence_ms": (300, 5000),
+    "min_threshold": (0.001, 0.5),
+    "max_seconds": (3, 60),
+    "match_threshold": (MIN_THRESHOLD, 100),
+}
 
 SETTINGS_PATH = Path(__file__).resolve().parent.parent / "settings.json"
 
@@ -77,11 +85,11 @@ def _flag(value):
 _CHECKS = {
     "hotkey": _hotkey,
     "armed_on_start": _flag,
-    "silence_ms": _number(300, 5000, int),
-    "min_threshold": _number(0.001, 0.5, float),
-    "max_seconds": _number(3, 60, int),
+    "silence_ms": _number(*BOUNDS["silence_ms"], int),
+    "min_threshold": _number(*BOUNDS["min_threshold"], float),
+    "max_seconds": _number(*BOUNDS["max_seconds"], int),
     "beep": _flag,
-    "match_threshold": _number(MIN_THRESHOLD, 100, float),
+    "match_threshold": _number(*BOUNDS["match_threshold"], float),
 }
 
 
@@ -115,3 +123,14 @@ def load_settings(path=SETTINGS_PATH, log=print):
         return Settings()
     return parse_settings(data, log)
 
+
+def save_settings(settings, path=SETTINGS_PATH):
+    """Write settings.json atomically (.tmp + os.replace)."""
+    path = Path(path)
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        tmp.write_text(json.dumps(settings.to_dict(), indent=2) + "\n", encoding="utf-8", newline="\n")
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise

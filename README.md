@@ -91,6 +91,17 @@ The first run of `listen` downloads the Whisper model (a few hundred MB) from Hu
 | `listen [--device cuda] [--threshold 70]` | The full loop: tap the hotkey, speak, run the matching preset. Options live in `settings.json` (copy `settings.example.json`) |
 | `autostart install\|remove\|status` | Start `listen` at login (shortcut in the Startup folder) |
 
+### Local API (`listen` starts it; `--no-web` skips it)
+
+`listen` serves a JSON API on `http://127.0.0.1:3003` (this PC only; never `0.0.0.0`). It can start programs, so every request is checked: `Host` must be `127.0.0.1:3003` or `localhost:3003`, and every POST/PUT/DELETE needs `Content-Type: application/json`, `X-Jarvis: 1` and an `Origin` of the same address. There is no CORS, except `JARVIS_DEV=1` (allows `http://localhost:3004` for `next dev`).
+
+```
+curl.exe http://127.0.0.1:3003/api/state
+curl.exe -X POST http://127.0.0.1:3003/api/armed -H "Content-Type: application/json" -H "X-Jarvis: 1" -H "Origin: http://127.0.0.1:3003" -d "{\"armed\": false}"
+```
+
+Endpoints: `state`, `armed`, `listen/toggle`, `presets` (+ `PUT`/`DELETE` `{name}`, `{name}/test`), `action-types`, `logs` (+ `dates`, `{id}/add-phrase`), `settings`, `hotkey/capture`. Presets saved from the web are validated (known action types, absolute `.exe` paths that exist, `http(s)` URLs, no `file:`/`ms-*` URIs) and written atomically, keeping `presets.json.bak`. Non-ASCII text in `curl.exe` must go through a UTF-8 file (`--data-binary @body.json`).
+
 ### Ask how much you spent
 
 ![Jarvis answering "เดือนนี้จ่ายไปเท่าไร" and "วันนี้จ่ายไปเท่าไร": each question picks its own period](GIF/spending.gif)

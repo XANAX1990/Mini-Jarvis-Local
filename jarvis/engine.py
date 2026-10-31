@@ -23,7 +23,8 @@ NO_MATCH_REPLY = "ไม่เข้าใจ"
 
 class Engine:
     def __init__(self, presets, settings, *, record, transcribe, match, run_preset, spoken_reply,
-                 speak, beep, log_command, hotkeys, build_prompt, log=print, clock=time.monotonic):
+                 speak, beep, log_command, hotkeys, build_prompt, wait_speaking=lambda: None, log=print,
+                 clock=time.monotonic):
         self._presets = presets
         self._build_prompt = build_prompt
         self._prompt = build_prompt(presets)
@@ -32,10 +33,12 @@ class Engine:
         self._run_preset, self._spoken_reply = run_preset, spoken_reply
         self._speak, self._beep, self._log_command = speak, beep, log_command
         self._hotkeys = hotkeys
+        self._wait_speaking = wait_speaking
         self._log = log
         self._clock = clock
         self._lock = threading.RLock()
         self._armed = False
+        self._capturing = False
         self._phase = IDLE
         self._stop = threading.Event()
         self._last = None
@@ -58,6 +61,11 @@ class Engine:
     @property
     def settings(self):
         return self._settings
+
+    @property
+    def presets(self):
+        """The presets in use (treat as read-only: change them with reload_presets)."""
+        return self._presets
 
     @property
     def last(self):
@@ -117,6 +125,22 @@ class Engine:
             self._settings = settings
             self._apply_hotkey()
 
+    def check_hotkey(self, key):
+        """None if the keyboard library accepts `key`, else a short reason."""
+        return self._hotkeys.check(key)
+
+    def capture_hotkey(self, capture):
+        """Return capture() with the live hotkey paused, so pressing it doesn't start listening."""
+        with self._lock:
+            self._capturing = True
+            self._apply_hotkey()
+        try:
+            return capture()
+        finally:
+            with self._lock:
+                self._capturing = False
+                self._apply_hotkey()
+
     def reload_presets(self, presets):
         """Swap in saved presets and rebuild Whisper's prompt, without a restart."""
         prompt = self._build_prompt(presets)
@@ -143,7 +167,7 @@ class Engine:
     # ---- internals ----
 
     def _apply_hotkey(self):
-        key = self._settings.hotkey if self._armed else None
+        key = self._settings.hotkey if self._armed and not self._capturing else None
         try:
             self._hotkeys.apply(key, lambda: self.toggle_listen("hotkey"))
         except Exception as e:  # a key the keyboard library rejects must not stop Jarvis
@@ -180,6 +204,7 @@ class Engine:
     def _do_listen(self, source):
         started = self._clock()
         settings = self._settings
+        self._wait_speaking()  # the mic must not hear Jarvis' own reply
         if settings.beep:
             self._beep("start")  # blocks until it has played, so the beep is not recorded
         samples, outcome = self._record(self._stop, settings)

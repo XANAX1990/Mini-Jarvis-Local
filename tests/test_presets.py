@@ -1,4 +1,5 @@
 import copy
+import re
 
 import pytest
 
@@ -9,7 +10,7 @@ VALID = {
         "phrases": ["เปิดโหมดเกม"],
         "reply": "ok",
         "actions": [
-            {"type": "run", "path": "a.exe", "args": ["--x"]},
+            {"type": "run", "path": "C:\\tools\\a.exe", "args": ["--x"]},
             {"type": "open", "target": "C:\\file.lnk"},
             {"type": "uri", "target": "roblox:"},
             {"type": "chrome", "urls": ["https://example.com"]},
@@ -37,13 +38,13 @@ def test_shipped_presets_json_is_valid():
 @pytest.mark.parametrize(
     "mutate, message",
     [
-        (lambda p: p["actions"].append({"type": "format_disk"}), "unknown action type"),
-        (lambda p: p["actions"].append({"type": "run"}), "missing 'path'"),
-        (lambda p: p["actions"].append({"type": "uri"}), "missing 'target'"),
-        (lambda p: p["actions"].append({"type": "chrome", "urls": []}), "non-empty"),
-        (lambda p: p["actions"].append({"type": "wait", "seconds": -1}), ">= 0"),
-        (lambda p: p["actions"].append({"type": "wait", "seconds": True}), "wrong type"),
-        (lambda p: p["actions"].append({"type": "run", "path": "a", "args": "x"}), "args"),
+        (lambda p: p["actions"].append({"type": "format_disk"}), "does not match any of the expected tags"),
+        (lambda p: p["actions"].append({"type": "run"}), "actions[6].path: Field required"),
+        (lambda p: p["actions"].append({"type": "uri"}), "actions[6].target: Field required"),
+        (lambda p: p["actions"].append({"type": "chrome", "urls": []}), "at least 1 item"),
+        (lambda p: p["actions"].append({"type": "wait", "seconds": -1}), "greater than or equal to 0"),
+        (lambda p: p["actions"].append({"type": "wait", "seconds": True}), "valid integer"),
+        (lambda p: p["actions"].append({"type": "run", "path": "C:\\a.exe", "args": "x"}), "args: Input should be a valid list"),
         (lambda p: p.pop("phrases"), "phrases"),
         (lambda p: p.update(phrases=[]), "phrases"),
         (lambda p: p.pop("reply"), "reply"),
@@ -51,7 +52,7 @@ def test_shipped_presets_json_is_valid():
     ],
 )
 def test_invalid_presets_raise_clear_error(mutate, message):
-    with pytest.raises(PresetError, match=message):
+    with pytest.raises(PresetError, match=re.escape(message)):
         validate_presets(broken(mutate))
 
 

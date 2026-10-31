@@ -13,6 +13,10 @@ const EXACT: Record<string, string> = {
   "a preset with this name already exists": "มี preset ชื่อนี้อยู่แล้ว",
   "at least one preset must remain": "ต้องเหลือ preset อย่างน้อย 1 อัน",
   "Field required": "ต้องกรอก",
+  "programs that run other commands (shells, script hosts) are not allowed from the web":
+    "โปรแกรมที่สั่งรันคำสั่งอื่นได้ (เช่น cmd, PowerShell) ตั้งจากเว็บไม่ได้ เพื่อความปลอดภัย ถ้าจำเป็นจริง ๆ ให้แก้ในไฟล์ presets.json เอง",
+  "script files are not allowed from the web":
+    "ไฟล์สคริปต์ (.bat, .ps1, .js, .vbs ฯลฯ) ตั้งจากเว็บไม่ได้ เพื่อความปลอดภัย ถ้าจำเป็นจริง ๆ ให้แก้ในไฟล์ presets.json เอง",
   "this key name is not recognized": "ระบบไม่รู้จักปุ่มนี้",
   "use one key or a combo like ctrl+alt+j": "ใช้ปุ่มเดียว หรือคอมโบ เช่น ctrl+alt+j",
   "in a combo, every key before the last must be ctrl, alt, shift or windows": "ในคอมโบ ปุ่มก่อนปุ่มสุดท้ายต้องเป็น ctrl, alt, shift หรือ windows",

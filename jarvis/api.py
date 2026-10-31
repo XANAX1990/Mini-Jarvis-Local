@@ -23,7 +23,7 @@ from jarvis import log as jarvis_log
 from jarvis.audio import AudioError
 from jarvis.engine import Refused
 from jarvis.matcher import normalize, unmatched_phrases
-from jarvis.models import ACTION_TYPES, NAME_PATTERN, Name, Preset, PresetCreate, missing_paths
+from jarvis.models import ACTION_TYPES, NAME_PATTERN, Name, Preset, PresetCreate, blocked_programs, missing_paths
 from jarvis.presets import PresetError
 from jarvis.settings import BOUNDS, Settings, save_settings, validate_hotkey
 
@@ -322,8 +322,9 @@ def create_app(engine, store, *, settings_path, logs_dir, port=PORT, dev=False, 
             engine.presets, new_presets, name, engine.settings.match_threshold, must_work, skip=duplicates
         )
         errors, warnings = errors + match_errors, warnings + match_warnings
-        if preset is not None:  # saved from the web: the files it starts must exist
-            errors = [{"field": f, "message": m} for f, m in missing_paths(preset)] + errors
+        if preset is not None:  # saved from the web: the files it starts must exist, and be safe to start
+            problems = blocked_programs(preset) + missing_paths(preset)
+            errors = [{"field": f, "message": m} for f, m in problems] + errors
         if errors:
             raise ApiError(422, "invalid", errors)
         try:

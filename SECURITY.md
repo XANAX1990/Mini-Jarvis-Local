@@ -49,8 +49,8 @@ Security rules and audit checklist for Jarvis (local Python voice launcher on Wi
 
 ### Presets written from the web
 - [ ] Action types come from a fixed list (`run`, `open`, `uri`, `chrome`, `wait`, later `spending`). Unknown type → 422.
-- [ ] `run`: path must be absolute, exist and end in `.exe`; args are a list of strings (max 20, each ≤ 500 chars). Never joined into a command string.
-- [ ] `open`: path must be absolute and exist.
+- [ ] `run`: path must be absolute, exist and end in `.exe`; args are a list of strings (max 20, each ≤ 500 chars). Never joined into a command string. Shells and script hosts (`cmd`, `powershell`, `pwsh`, `wscript`, `cscript`, `mshta`, `rundll32`, `wsl`, ...) are refused from the web: with args they would turn "start a program" into "run any command". The check follows symlinks and ignores trailing dots/spaces; it is best effort (a renamed copy gets past it), and `presets.json` itself is yours to edit.
+- [ ] `open`: path must be absolute and exist, and must not be a script (`.bat .cmd .ps1 .vbs .js .hta .msi ...`) or one of the shells above.
 - [ ] `chrome`: each URL must be `http://` or `https://` only.
 - [ ] `uri`: scheme must match `^[a-z][a-z0-9+.-]*:` and is refused if it is `file`, `javascript`, `vbscript`, `data`, `shell`, `search-ms`, `ms-msdt`, or starts with `ms-` (Windows protocol handlers that have been abused to run code).
 - [ ] Preset names `^[a-z0-9-]{1,32}$`; phrases ≤ 100 chars, ≤ 20 per preset; reply ≤ 200 chars; ≤ 20 steps; `wait` 0–30 s.

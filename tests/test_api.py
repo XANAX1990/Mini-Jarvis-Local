@@ -1,4 +1,5 @@
 import json
+import os
 import socket
 import sys
 import threading
@@ -720,3 +721,84 @@ def test_a_preset_that_already_has_a_broken_phrase_is_told_so_on_the_next_save(t
     assert ("unmatchable", "เปิดโหมดเกม และเปิดโหมดทำงาน") in kinds
     assert ("unmatchable", "โหมดเกม") in kinds or ("unmatchable", "เปิดโหมดเกม") in kinds
     e.engine.close()
+
+
+# ---- shells and scripts are refused from the web (audit: a preset could run any command) ----
+
+SYSTEM32 = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32")
+
+
+@pytest.mark.parametrize("path", [
+    os.path.join(SYSTEM32, "cmd.exe"),
+    os.path.join(SYSTEM32, "CMD.EXE"),
+    os.path.join(SYSTEM32, "WindowsPowerShell", "v1.0", "powershell.exe"),
+    "%SystemRoot%\\System32\\cmd.exe",
+    os.path.join(SYSTEM32, "wscript.exe"),
+    os.path.join(SYSTEM32, "mshta.exe"),
+    os.path.join(SYSTEM32, "rundll32.exe"),
+], ids=lambda p: p[-24:])
+def test_run_refuses_shells_and_script_hosts(env, path):
+    before = env.presets_path.read_bytes()
+    r = env.post("/api/presets", {"name": "sh", **env.new_preset(actions=[{"type": "run", "path": path, "args": ["/c", "echo", "hi"]}])})
+    assert r.status_code == 422, r.text
+    assert r.json()["fields"][0] == {
+        "field": "actions.0.path",
+        "message": "programs that run other commands (shells, script hosts) are not allowed from the web",
+    }
+    assert env.presets_path.read_bytes() == before and "sh" not in env.engine.presets
+
+
+def test_open_refuses_scripts_and_shells(env, tmp_path):
+    for name in ("a.bat", "a.cmd", "a.ps1", "a.vbs", "a.js", "a.hta", "a.msi", "A.BAT"):
+        script = tmp_path / name
+        script.write_text("echo hi", encoding="utf-8")
+        r = env.post("/api/presets", {"name": "sc", **env.new_preset(actions=[{"type": "open", "target": str(script)}])})
+        assert r.status_code == 422, name
+        assert r.json()["fields"][0] == {"field": "actions.0.target", "message": "script files are not allowed from the web"}
+    r = env.post("/api/presets", {"name": "sc", **env.new_preset(actions=[{"type": "open", "target": os.path.join(SYSTEM32, "cmd.exe")}])})
+    assert r.status_code == 422 and "shells" in r.json()["fields"][0]["message"]
+    assert "sc" not in env.engine.presets
+
+
+def test_trailing_dots_and_spaces_do_not_hide_a_script(env, tmp_path):
+    script = tmp_path / "x.bat"
+    script.write_text("echo hi", encoding="utf-8")
+    r = env.post("/api/presets", {"name": "sc", **env.new_preset(actions=[{"type": "open", "target": str(script) + "."}])})
+    assert r.status_code == 422  # Windows would open x.bat
+
+
+def test_ordinary_programs_files_and_folders_are_still_allowed(env, tmp_path):
+    note = tmp_path / "notes.txt"
+    note.write_text("hi", encoding="utf-8")
+    actions = [
+        {"type": "run", "path": os.path.join(SYSTEM32, "hostname.exe"), "args": ["-x"]},
+        {"type": "open", "target": str(note)},
+        {"type": "open", "target": str(tmp_path)},
+    ]
+    r = env.post("/api/presets", {"name": "fine", **env.new_preset(actions=actions)})
+    assert r.status_code == 201, r.text
+
+
+def test_the_other_steps_of_a_refused_preset_are_still_reported(env, tmp_path):
+    ghost = str(tmp_path / "nothing.exe")
+    actions = [{"type": "run", "path": os.path.join(SYSTEM32, "cmd.exe")}, {"type": "run", "path": ghost}]
+    r = env.post("/api/presets", {"name": "two", **env.new_preset(actions=actions)})
+    assert {f["field"] for f in r.json()["fields"]} == {"actions.0.path", "actions.1.path"}
+
+
+def test_a_hand_edited_presets_file_may_still_use_a_shell(tmp_path):
+    """The deny-list guards the web, not presets.json: whoever edits the file can already do anything."""
+    from jarvis.presets import validate_presets
+
+    data = {"x": {"phrases": ["ทดสอบ"], "reply": "", "actions": [
+        {"type": "run", "path": os.path.join(SYSTEM32, "cmd.exe"), "args": ["/c", "echo"]}]}}
+    assert validate_presets(data)["x"]["actions"][0]["type"] == "run"
+
+
+def test_saving_a_preset_that_already_holds_a_shell_asks_for_it_to_be_removed(env):
+    cmd = os.path.join(SYSTEM32, "cmd.exe")
+    env.engine.reload_presets({**env.engine.presets, "old": {"phrases": ["เก่ามาก"], "reply": "", "actions": [{"type": "run", "path": cmd}]}})
+    r = env.put("/api/presets/old", {"phrases": ["เก่ามาก"], "reply": "", "actions": [{"type": "run", "path": cmd}]})
+    assert r.status_code == 422
+    ok = env.put("/api/presets/old", {"phrases": ["เก่ามาก"], "reply": "", "actions": []})
+    assert ok.status_code == 200

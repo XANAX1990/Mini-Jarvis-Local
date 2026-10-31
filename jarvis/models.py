@@ -21,6 +21,22 @@ BLOCKED_URI_SCHEMES = {"file", "javascript", "vbscript", "data", "shell", "searc
 URI_SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*:")
 PERIODS = ("today", "week", "month")
 
+# Programs that run other commands, and script files. A preset written from the web may not start them:
+# with `run` plus args they turn "start a program" into "run any command". Best effort (a renamed copy
+# gets past it); presets.json itself is yours to edit, so loading the file does not apply this.
+SHELLS = {
+    "cmd.exe", "powershell.exe", "powershell_ise.exe", "pwsh.exe", "wscript.exe", "cscript.exe", "mshta.exe",
+    "rundll32.exe", "regsvr32.exe", "msiexec.exe", "wmic.exe", "certutil.exe", "bitsadmin.exe", "bash.exe",
+    "wsl.exe", "wt.exe", "forfiles.exe", "msbuild.exe", "installutil.exe", "cmstp.exe", "schtasks.exe",
+    "reg.exe", "sc.exe",
+}
+SCRIPT_SUFFIXES = {
+    ".bat", ".cmd", ".ps1", ".psm1", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh", ".hta", ".msi", ".scr",
+    ".reg", ".com", ".pif", ".cpl",
+}
+BLOCKED_PROGRAM = "programs that run other commands (shells, script hosts) are not allowed from the web"
+BLOCKED_SCRIPT = "script files are not allowed from the web"
+
 
 class _Model(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -166,6 +182,29 @@ ACTION_TYPES = [
     {"type": "spending", "label": "ถามยอดใช้จ่าย", "fields": [
         {"name": "period", "kind": "choice", "required": True, "options": list(PERIODS)}]},
 ]
+
+
+def _resolved(path):
+    """The expanded path as Windows will see it: symlinks and short names resolved, trailing dots/spaces
+    dropped (Windows ignores them, so 'cmd.exe.' is cmd.exe)."""
+    expanded = os.path.expandvars(path).rstrip(" .")
+    return PureWindowsPath(os.path.realpath(expanded) if os.path.exists(expanded) else expanded)
+
+
+def blocked_programs(preset):
+    """(field, message) for each step that would start a shell, a script host or a script file."""
+    problems = []
+    for i, action in enumerate(preset.actions):
+        if action.type == "run":
+            if _resolved(action.path).name.lower() in SHELLS:
+                problems.append((f"actions.{i}.path", BLOCKED_PROGRAM))
+        elif action.type == "open":
+            target = _resolved(action.target)
+            if target.name.lower() in SHELLS:
+                problems.append((f"actions.{i}.target", BLOCKED_PROGRAM))
+            elif target.suffix.lower() in SCRIPT_SUFFIXES:
+                problems.append((f"actions.{i}.target", BLOCKED_SCRIPT))
+    return problems
 
 
 def missing_paths(preset):

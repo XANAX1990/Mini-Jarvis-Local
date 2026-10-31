@@ -31,6 +31,20 @@ MODIFIERS = {
     "left shift", "right shift", "left windows", "right windows",
 }
 
+_BASE_MODIFIER = {
+    "left ctrl": "ctrl", "right ctrl": "ctrl", "left alt": "alt", "right alt": "alt", "alt gr": "alt",
+    "left shift": "shift", "right shift": "shift", "left windows": "windows", "right windows": "windows",
+    "win": "windows",
+}
+# Shortcuts other programs (or Windows) rely on. The hotkey is suppressed system-wide, so taking one of
+# these would break copy/paste, switching windows and so on until it is changed back.
+SYSTEM_SHORTCUTS = (
+    {(frozenset({"ctrl"}), key) for key in "acfnopsvwxyz"}
+    | {(frozenset({"ctrl"}), "esc"), (frozenset({"ctrl", "shift"}), "esc")}
+    | {(frozenset({"alt"}), "tab"), (frozenset({"alt"}), "f4"), (frozenset({"ctrl", "alt"}), "delete")}
+    | {(frozenset({"windows"}), key) for key in ("d", "e", "l", "r", "tab")}
+)
+
 
 def validate_hotkey(text):
     """Return (normalized hotkey, None), or (None, reason) if the key can't be used."""
@@ -49,6 +63,11 @@ def validate_hotkey(text):
             return None, "in a combo, every key before the last must be ctrl, alt, shift or windows"
         if last in MODIFIERS:
             return None, "a combo must end with a normal key, e.g. ctrl+alt+j"
+        mods = frozenset(_BASE_MODIFIER.get(m, m) for m in held)
+        if (mods, last) in SYSTEM_SHORTCUTS:
+            return None, f"'{'+'.join(parts)}' is a shortcut other programs need: pick another combo, e.g. ctrl+alt+j"
+        if mods == {"shift"} and len(last) == 1:
+            return None, f"'{'+'.join(parts)}' types a character: add ctrl or alt, e.g. ctrl+alt+{last}"
     return "+".join(parts), None
 
 

@@ -270,7 +270,7 @@ export default function SettingsView() {
           </p>
         )}
         <p className="mt-3 text-xs text-slate-500">
-          ปุ่มตัวอักษร ตัวเลข และปุ่มพิมพ์ (space, enter, tab, backspace, esc, shift) ใช้เดี่ยว ๆ ไม่ได้ ใช้คู่กับ Ctrl/Alt ได้ เช่น ctrl+alt+j
+          ปุ่มตัวอักษร ตัวเลข และปุ่มพิมพ์ (space, enter, tab, backspace, esc, shift) ใช้เดี่ยว ๆ ไม่ได้ ใช้คู่กับ Ctrl/Alt ได้ เช่น ctrl+alt+j แต่ไม่รวมคีย์ลัดระบบ (ctrl+c, ctrl+v, alt+tab ฯลฯ)
         </p>
       </section>
 

@@ -35,6 +35,10 @@ export function thaiError(message: string): string {
   if (tooClose) return `วลี "${tooClose[1]}" ใกล้เคียงกับวลีอื่นมาก Jarvis จะจับคู่ไม่ได้`;
   const breaks = /^saving this would stop Jarvis recognising '(.*)' of preset '(.*)'$/.exec(message);
   if (breaks) return `ถ้าบันทึกแบบนี้ คำสั่ง "${breaks[1]}" ของ preset "${breaks[2]}" จะใช้ไม่ได้อีก`;
+  const system = /^'(.*)' is a shortcut other programs need: pick another combo, e\.g\. (.*)$/.exec(message);
+  if (system) return `"${system[1]}" เป็นคีย์ลัดที่โปรแกรมอื่นหรือ Windows ใช้อยู่ (เช่น คัดลอก/วาง สลับหน้าต่าง) ตั้งเป็นปุ่มลัดไม่ได้ ลองใช้อย่างอื่น เช่น ${system[2]}`;
+  const types = /^'(.*)' types a character: add ctrl or alt, e\.g\. (.*)$/.exec(message);
+  if (types) return `"${types[1]}" คือการพิมพ์ตัวอักษร ถ้าตั้งเป็นปุ่มลัดจะพิมพ์ตัวใหญ่ไม่ได้ ให้เพิ่ม ctrl หรือ alt เช่น ${types[2]}`;
   const typing = /^'(.*)' is a typing key: use it with a modifier, e\.g\. (.*)$/.exec(message);
   if (typing) return `"${typing[1]}" เป็นปุ่มพิมพ์ ใช้เดี่ยว ๆ ไม่ได้ (จะพิมพ์ไม่ออก) ลองใช้คู่กับ Ctrl/Alt เช่น ${typing[2]}`;
   if (message.startsWith("a combo must end with a normal key")) return "คอมโบต้องลงท้ายด้วยปุ่มปกติ เช่น ctrl+alt+j";

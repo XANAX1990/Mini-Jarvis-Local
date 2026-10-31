@@ -6,9 +6,24 @@ import pytest
 from jarvis.settings import Settings, load_settings, parse_settings, validate_hotkey
 
 
-@pytest.mark.parametrize("key", ["caps lock", "f9", "right ctrl", "pause", "ctrl+alt+j", "ctrl+a"])
+@pytest.mark.parametrize("key", ["caps lock", "f9", "right ctrl", "pause", "ctrl+alt+j", "ctrl+alt+a", "ctrl+shift+c", "alt+j"])
 def test_allowed_hotkeys(key):
     assert validate_hotkey(key) == (key, None)
+
+
+@pytest.mark.parametrize("key", [
+    "ctrl+c", "Ctrl+V", "ctrl+x", "ctrl+z", "ctrl+a", "right ctrl+c", "left ctrl+v", "alt+tab", "alt+f4",
+    "windows+d", "win+l", "windows+e", "ctrl+shift+esc", "ctrl+alt+delete",
+])
+def test_system_shortcuts_are_refused(key):
+    hotkey, reason = validate_hotkey(key)
+    assert hotkey is None and "shortcut other programs need" in reason
+
+
+@pytest.mark.parametrize("key", ["shift+a", "shift+1", "left shift+q", "right shift+;"])
+def test_shift_plus_a_character_would_break_typing(key):
+    hotkey, reason = validate_hotkey(key)
+    assert hotkey is None and "types a character" in reason
 
 
 def test_hotkey_is_normalized():

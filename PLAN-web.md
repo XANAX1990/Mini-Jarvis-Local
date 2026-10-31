@@ -8,7 +8,7 @@ Put this file in the `mini-jarvis` repo next to `PLAN.md`. Phases continue from 
 | Topic | Decision |
 |---|---|
 | Talk mode | Press once → beep → listening → **stops by itself after ~1 s of silence** → beep. Pressing again while listening stops early. |
-| Hotkey | Default **Caps Lock** (one key, easy on a 60% keyboard), suppressed so it doesn't toggle caps. Changeable in Settings. Plain letters, digits and typing keys (space, enter, tab, backspace, esc, left/right shift) are **refused** as a single-key hotkey: they would fire while typing, or vanish from typing if suppressed. They're allowed with a modifier (e.g. `ctrl+alt+j`). |
+| Hotkey | Default **Caps Lock** (one key, easy on a 60% keyboard), suppressed so it doesn't toggle caps. Changeable in Settings. Plain letters, digits and typing keys (space, enter, tab, backspace, esc, left/right shift) are **refused** as a single-key hotkey: they would fire while typing, or vanish from typing if suppressed. They're allowed with a modifier (e.g. `ctrl+alt+j`), except system shortcuts (`ctrl+c`, `ctrl+v`, `alt+tab`, `windows+d`, ... which other programs need) and `shift` + a character (it would stop capitals from typing). |
 | Master switch | "Jarvis ฟังอยู่ / ปิด" toggle on the home page. Off → the hotkey is unregistered (the key works normally again) and the mic button is disabled. |
 | Web stack | Next.js (App Router, TypeScript, Tailwind) built as a **static export** (`output: 'export'`) into `web/out/`. The Jarvis Python process serves those files and the API on **one port: `127.0.0.1:3003`**. One process, no Node at runtime, no console window. |
 | Dev mode | `next dev -p 3004` for the web; the Python API allows CORS from `http://localhost:3004` **only** when `JARVIS_DEV=1`. |

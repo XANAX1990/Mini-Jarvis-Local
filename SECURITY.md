@@ -29,7 +29,7 @@ Security rules and audit checklist for Jarvis (local Python voice launcher on Wi
 - [ ] Below the match threshold → do nothing (and say "ไม่เข้าใจ"). Never "best guess" a preset.
 - [ ] It only listens after a key press or a click, stops by itself after silence or `max_seconds`, and never listens continuously. The master switch "off" unregisters the hotkey and disables the mic button. If a wake word is added, presets that close apps or change files require a spoken or key confirmation.
 - [ ] Keyboard hook: register only the configured hotkey. Never record, log or store any other key presses. `/api/hotkey/capture` returns only the one combo pressed and doesn't save it.
-- [ ] Jarvis runs as my normal user, never as administrator. Autostart uses the Startup folder, not a service or a scheduled task with highest privileges.
+- [ ] Jarvis runs as my normal user, never as administrator, and refuses to start when it is elevated (`jarvis/privileges.py`, every command). Autostart uses the Startup folder, not a service or a scheduled task with highest privileges.
 - [ ] `presets.json` is validated on load (known action types only, required fields present). Invalid file → refuse to start with a clear error.
 - [ ] Audio is not kept by default: `last.wav` is overwritten each time. Transcript logs are kept for a limited time (e.g. 30 days) and never committed.
 - [ ] Models are downloaded only from known repos, versions noted in the README; voice and wake-word licenses noted (non-commercial ones are for personal use only).
@@ -66,7 +66,12 @@ Security rules and audit checklist for Jarvis (local Python voice launcher on Wi
 - [ ] Remember: answers are spoken out loud, so anyone in the room hears my spending.
 
 ### Files that must never be tracked
-`.env`, `logs/`, `voices/`, `models/`, `.venv/`, any recorded `.wav`, `settings.json`, `presets.json.bak`, `web/node_modules/`, `web/.next/`, `web/out/`.
+`.env`, `logs/`, `voices/`, `models/`, `.venv/`, any recorded `.wav`, `settings.json`, `presets.json` (my own presets; `presets.example.json` is the tracked starter that is copied on first run), `presets.json.bak`, `presets.json.tmp`, `web/node_modules/`, `web/.next/`, `web/out/`.
+
+### Accepted risks (decided by the owner, 2026-11-01)
+- **CSP allows `script-src 'unsafe-inline'`.** The Next.js static export puts its start-up scripts inline in every page. The page loads nothing from other origins (`default-src 'self'`, `connect-src 'self'`, no external fonts or scripts). Revisit with script hashes if the page ever shows content from outside.
+- **The shell/script deny-list for presets written from the web is best effort.** A renamed copy of `cmd.exe` gets past it, `python.exe` and `node.exe` are not blocked (my own tools may need them), and a `presets.json` edited by hand is not checked at all: whoever can edit the file can already run anything as me.
+- **The local API has no login.** Host, Origin and `X-Jarvis` protect against web pages and DNS rebinding, not against another program running as me, which could do the same things without the API.
 
 ### Tests that must exist
 - [ ] Wrong `Host` → 403

@@ -66,6 +66,8 @@ One process (`python -m jarvis listen`, or the Startup shortcut) does everything
 Action types: `run` (an exe with args), `open` (a file, folder or `.lnk` shortcut), `uri` (a protocol link like `discord:`), `chrome` (a new window with URLs), `wait`, and `spending` (answers a spending question, see below). You can edit them in the browser instead of this file.
 Chrome goes last on purpose: whatever opens last ends up in front.
 
+**`presets.json` is yours and is not committed** (it is git-ignored, so your own apps, sites and phrases stay private). [`presets.example.json`](presets.example.json) is the tracked starter: the first time Jarvis starts and finds no `presets.json`, it copies the example.
+
 ## Tech stack
 
 - Python 3.12 on Windows
@@ -88,6 +90,8 @@ python -m jarvis list
 python -m jarvis run game
 python -m jarvis listen
 ```
+
+Any command creates `presets.json` from `presets.example.json` on the first run, and `listen` reads `settings.json` if you made one (copy `settings.example.json`). Jarvis refuses to run as administrator: use a normal terminal.
 
 The first run of `listen` downloads the Whisper model (a few hundred MB) from Hugging Face: `Systran/faster-whisper-small` (MIT licence), which is what `faster-whisper` 1.2.1 uses for `small`. The revision checked on 2026-10-30 was `536b0662742c02347bc0e980a01041f333bce120` (last changed 2023-11-23); `WhisperModel` takes a `revision` argument if you ever want to pin it.
 
@@ -174,11 +178,13 @@ jarvis/
 ├─ tts.py           # Piper wrapper
 ├─ log.py           # daily JSONL log (logs/YYYY-MM-DD.jsonl), 30-day retention
 ├─ spending.py      # the spending question (reads Slip Tracker)
+├─ privileges.py    # refuses to run as administrator
 ├─ autostart.py     # Startup-folder shortcut
 └─ single.py        # one `listen` at a time (named mutex)
 web/                # Next.js static export, served from web/out/
 docs/screenshots/   # README images (sample data)
-presets.json
+presets.example.json # the starter presets (tracked)
+presets.json        # yours, git-ignored, created from the example on first run
 settings.json       # not committed (copy settings.example.json)
 voices/             # Piper voice files (.onnx + .onnx.json), not committed
 logs/               # not committed

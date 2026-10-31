@@ -5,6 +5,7 @@ transcript text: every path/URL comes from presets.json.
 """
 import json
 import os
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -14,6 +15,7 @@ from pydantic import TypeAdapter, ValidationError
 from jarvis.models import Name, Preset
 
 PRESETS_PATH = Path(__file__).resolve().parent.parent / "presets.json"
+EXAMPLE_PATH = PRESETS_PATH.with_name("presets.example.json")  # tracked starter; presets.json is yours and git-ignored
 
 CHROME_CANDIDATES = [
     r"%ProgramFiles%\Google\Chrome\Application\chrome.exe",
@@ -57,6 +59,17 @@ def validate_presets(data):
         first = e.errors()[0]
         raise PresetError(describe_error(first["loc"], first["msg"])) from None
     return {name: preset.model_dump(exclude_unset=True) for name, preset in models.items()}
+
+
+def ensure_presets_file(path=PRESETS_PATH, example=EXAMPLE_PATH):
+    """First run: there is no presets.json yet, so start from the example. True if it was created.
+
+    An existing file is never touched, and a missing example is left for load_presets to report."""
+    path, example = Path(path), Path(example)
+    if path.exists() or not example.is_file():
+        return False
+    shutil.copyfile(example, path)
+    return True
 
 
 def load_presets(path=PRESETS_PATH):

@@ -8,6 +8,7 @@ __pycache__/
 *.wav
 .env
 settings.json
+presets.json
 presets.json.bak
 presets.json.tmp
 web/node_modules/

@@ -3,10 +3,10 @@ with each other, with a bare "how much?", or with the game/work commands."""
 import pytest
 
 from jarvis.matcher import match
-from jarvis.presets import load_presets
+from jarvis.presets import EXAMPLE_PATH, load_presets
 from jarvis.stt import build_prompt
 
-PRESETS = load_presets()  # the real presets.json
+PRESETS = load_presets(EXAMPLE_PATH)  # the presets that ship (presets.json is the owner's own)
 
 
 @pytest.mark.parametrize(

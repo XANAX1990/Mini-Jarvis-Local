@@ -6,7 +6,9 @@ from dataclasses import replace
 
 from jarvis.audio import AudioError
 from jarvis.matcher import MIN_THRESHOLD
-from jarvis.presets import PresetError, get_preset, load_presets, run_preset, spending_period, spoken_reply
+from jarvis.presets import (
+    PresetError, ensure_presets_file, get_preset, load_presets, run_preset, spending_period, spoken_reply,
+)
 
 
 def threshold_arg(text):
@@ -183,6 +185,8 @@ def main(argv=None):
             stream.reconfigure(encoding="utf-8")
     args = build_parser().parse_args(argv)
     try:
+        if ensure_presets_file():
+            print("created presets.json from presets.example.json (it is yours: edit it in the web UI or by hand)")
         presets = load_presets()
         if args.command == "list":
             for name, preset in presets.items():

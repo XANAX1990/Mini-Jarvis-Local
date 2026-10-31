@@ -3,7 +3,8 @@ import re
 
 import pytest
 
-from jarvis.presets import PresetError, get_preset, load_presets, validate_presets
+from jarvis import __main__ as app
+from jarvis.presets import EXAMPLE_PATH, PresetError, ensure_presets_file, get_preset, load_presets, validate_presets
 
 VALID = {
     "game": {
@@ -30,9 +31,40 @@ def test_valid_presets_pass():
     assert validate_presets(copy.deepcopy(VALID)) == VALID
 
 
-def test_shipped_presets_json_is_valid():
-    presets = load_presets()
-    assert {"game", "work"} <= set(presets)
+def test_shipped_example_presets_are_valid():
+    presets = load_presets(EXAMPLE_PATH)  # presets.json is the owner's and git-ignored: the example is what ships
+    assert {"game", "work", "spending-today", "spending-week", "spending-month"} <= set(presets)
+
+
+def test_first_run_copies_the_example_and_never_overwrites(tmp_path):
+    mine = tmp_path / "presets.json"
+    assert ensure_presets_file(mine, EXAMPLE_PATH) is True
+    assert mine.read_bytes() == EXAMPLE_PATH.read_bytes()
+    mine.write_text("{}", encoding="utf-8")  # the owner edits it
+    assert ensure_presets_file(mine, EXAMPLE_PATH) is False
+    assert mine.read_text(encoding="utf-8") == "{}"
+
+
+def test_first_run_without_an_example_leaves_the_clear_error_to_load_presets(tmp_path):
+    mine = tmp_path / "presets.json"
+    assert ensure_presets_file(mine, tmp_path / "nope.json") is False
+    assert not mine.exists()
+    with pytest.raises(PresetError, match="not found"):
+        load_presets(mine)
+
+
+def test_presets_json_is_git_ignored_and_the_example_is_not():
+    from pathlib import Path
+
+    lines = (Path(__file__).resolve().parent.parent / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert "presets.json" in lines and "presets.example.json" not in lines
+
+
+def test_first_run_tells_the_owner_that_presets_json_was_created(monkeypatch, capsys):
+    monkeypatch.setattr(app, "ensure_presets_file", lambda: True)
+    monkeypatch.setattr(app, "load_presets", lambda: {"game": {"phrases": ["เปิดโหมดเกม"]}})
+    assert app.main(["list"]) == 0
+    assert "created presets.json from presets.example.json" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize(

@@ -1,0 +1,88 @@
+{
+  "game": {
+    "phrases": [
+      "เปิดโหมดเกม",
+      "โหมดเล่นเกม",
+      "โหมดเกม"
+    ],
+    "reply": "เปิดโหมดเกมแล้ว",
+    "actions": [
+      {
+        "type": "run",
+        "path": "%LocalAppData%\\Discord\\Update.exe",
+        "args": [
+          "--processStart",
+          "Discord.exe"
+        ]
+      },
+      {
+        "type": "wait",
+        "seconds": 3
+      },
+      {
+        "type": "chrome",
+        "urls": [
+          "https://www.youtube.com"
+        ]
+      }
+    ]
+  },
+  "work": {
+    "phrases": [
+      "เปิดโหมดทำงาน",
+      "โหมดทำงาน",
+      "โหมดงาน"
+    ],
+    "reply": "เปิดโหมดทำงานแล้ว",
+    "actions": [
+      {
+        "type": "chrome",
+        "urls": [
+          "https://github.com",
+          "https://calendar.google.com"
+        ]
+      }
+    ]
+  },
+  "spending-today": {
+    "phrases": [
+      "วันนี้จ่ายไปเท่าไร",
+      "วันนี้ใช้ไปเท่าไร"
+    ],
+    "reply": "เช็กยอดให้แล้ว",
+    "actions": [
+      {
+        "type": "spending",
+        "period": "today"
+      }
+    ]
+  },
+  "spending-week": {
+    "phrases": [
+      "อาทิตย์นี้จ่ายไปเท่าไร",
+      "อาทิตย์นี้ใช้ไปเท่าไร",
+      "สัปดาห์นี้จ่ายไปเท่าไร",
+      "สัปดาห์นี้ใช้ไปเท่าไร"
+    ],
+    "reply": "เช็กยอดให้แล้ว",
+    "actions": [
+      {
+        "type": "spending",
+        "period": "week"
+      }
+    ]
+  },
+  "spending-month": {
+    "phrases": [
+      "เดือนนี้จ่ายไปเท่าไร",
+      "เดือนนี้ใช้ไปเท่าไร"
+    ],
+    "reply": "เช็กยอดให้แล้ว",
+    "actions": [
+      {
+        "type": "spending",
+        "period": "month"
+      }
+    ]
+  }
+}

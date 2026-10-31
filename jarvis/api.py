@@ -267,9 +267,13 @@ def create_app(engine, store, *, settings_path, logs_dir, port=PORT, dev=False, 
     def listing():
         return [{"name": name, **preset} for name, preset in engine.presets.items()]
 
-    def commit(new_presets, name):
-        """Phrase checks, then save + reload. Returns warnings; the file is untouched on any error."""
+    def commit(new_presets, name, preset=None):
+        """Path and phrase checks, then save + reload. Returns warnings.
+
+        All problems are reported together; the file is untouched if there is any."""
         errors, warnings = check_phrases(new_presets, name)
+        if preset is not None:  # saved from the web: the files it starts must exist
+            errors = [{"field": f, "message": m} for f, m in missing_paths(preset)] + errors
         if errors:
             raise ApiError(422, "invalid", errors)
         try:
@@ -279,35 +283,28 @@ def create_app(engine, store, *, settings_path, logs_dir, port=PORT, dev=False, 
         engine.reload_presets(new_presets)
         return warnings
 
-    def file_errors(preset):
-        problems = missing_paths(preset)
-        if problems:
-            raise ApiError(422, "invalid", [{"field": f, "message": m} for f, m in problems])
-
     @app.get("/api/presets")
     def list_presets():
         return {"presets": listing()}
 
     @app.post("/api/presets", status_code=201)
     def create_preset(body: PresetCreate):
-        file_errors(body)
         with preset_lock:
             presets = copy.deepcopy(engine.presets)
             if body.name in presets:
                 raise ApiError(409, "exists", [{"field": "name", "message": "a preset with this name already exists"}])
             presets[body.name] = body.model_dump(exclude={"name"}, exclude_unset=True)
-            warnings = commit(presets, body.name)
+            warnings = commit(presets, body.name, body)
         return {"name": body.name, "warnings": warnings}
 
     @app.put("/api/presets/{name}")
     def replace_preset(name: Annotated[str, Path(pattern=NAME_PATTERN)], body: Preset):
-        file_errors(body)
         with preset_lock:
             presets = copy.deepcopy(engine.presets)
             if name not in presets:
                 raise ApiError(404, "not_found")
             presets[name] = body.model_dump(exclude_unset=True)
-            warnings = commit(presets, name)
+            warnings = commit(presets, name, body)
         return {"name": name, "warnings": warnings}
 
     @app.delete("/api/presets/{name}")

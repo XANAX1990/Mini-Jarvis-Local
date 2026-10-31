@@ -93,7 +93,7 @@ The first run of `listen` downloads the Whisper model (a few hundred MB) from Hu
 
 ### Web UI
 
-Build it once, then open `http://127.0.0.1:3003` while `listen` is running: `cd web && npm ci && npm run build`. The home page has a mic button (click to talk, click again to stop early), the "Jarvis ฟังอยู่" master switch, the last command and today's last 5 log lines. If `web/out/` is missing, `/` says to run the build. More in [web/README.md](web/README.md).
+Build it once, then open `http://127.0.0.1:3003` while `listen` is running: `cd web && npm ci && npm run build`. The home page has a mic button (click to talk, click again to stop early), the "Jarvis ฟังอยู่" master switch, the last command and today's last 5 log lines. **Presets** (`/presets/`) lists every preset and edits them without touching JSON: phrases as tags, an ordered list of steps built from `/api/action-types`, move up/down, delete, **ทดสอบ** (runs the saved preset without speaking) and a confirm before delete. Saving takes effect at once, no restart. If `web/out/` is missing, `/` says to run the build. More in [web/README.md](web/README.md).
 
 ### Local API (`listen` starts it; `--no-web` skips it)
 

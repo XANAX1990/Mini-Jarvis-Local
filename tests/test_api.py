@@ -595,3 +595,10 @@ def test_head_is_allowed_for_pages_only_and_still_needs_the_host(tmp_path):
     assert e.client.head("/presets/", headers={"Host": "evil.example:3003"}).status_code == 403
     assert e.client.request("OPTIONS", "/presets/").status_code == 403
     e.engine.close()
+
+
+def test_a_missing_file_and_a_duplicate_phrase_are_reported_together(env, tmp_path):
+    ghost = str(tmp_path / "nothing.exe")
+    r = env.post("/api/presets", {"name": "x", **env.new_preset(phrases=["เปิดโหมดเกม"], actions=[{"type": "run", "path": ghost}])})
+    assert r.status_code == 422
+    assert {f["field"] for f in r.json()["fields"]} == {"actions.0.path", "phrases"}

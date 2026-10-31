@@ -164,16 +164,28 @@ export const putSettings = (changes: Partial<SettingsData>) => request<SettingsD
 export const captureHotkey = () => request<HotkeyCapture>("POST", "/api/hotkey/capture");
 export const micTest = () => request<MicLevels>("POST", "/api/mic/test");
 
-// ---- programs: what a "run" step may start (programs.json) ----
+// ---- programs.json: what an "app" step may open (programs and app links) ----
 
-export interface ProgramData {
+export interface ExeProgramData {
   name: string;
+  kind: "exe";
   path: string;
   args: string[];
 }
 
+export interface UriProgramData {
+  name: string;
+  kind: "uri";
+  uri: string;
+}
+
+export type ProgramData = ExeProgramData | UriProgramData;
+export type ProgramBody = Omit<ExeProgramData, "name"> | Omit<UriProgramData, "name">;
+
 export const getPrograms = () => request<{ programs: ProgramData[] }>("GET", "/api/programs");
-/** Waits (up to 60 s) for the person at the PC to answer a Yes/No box on the Windows desktop. */
+/** Adding or changing waits (up to 60 s) for the person at the PC to answer a Yes/No box on the Windows desktop. */
 export const addProgram = (program: ProgramData) => request<{ name: string }>("POST", "/api/programs", program);
+export const updateProgram = (name: string, body: ProgramBody) =>
+  request<{ name: string; changed: boolean }>("PUT", `/api/programs/${encodeURIComponent(name)}`, body);
 export const deleteProgram = (name: string) =>
   request<{ name: string }>("DELETE", `/api/programs/${encodeURIComponent(name)}`);

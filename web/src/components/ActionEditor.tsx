@@ -7,7 +7,7 @@ import TagInput from "./TagInput";
 const LABEL: Record<string, string> = {
   "run.path": "โปรแกรม (.exe)",
   "run.args": "อาร์กิวเมนต์ (พิมพ์แล้วกด Enter)",
-  "run.program": "โปรแกรม (เลือกจากรายการที่อนุญาตไว้)",
+  "app.name": "แอป (เลือกจากรายการที่อนุญาตไว้)",
   "open.target": "ไฟล์ / โฟลเดอร์",
   "uri.target": "ลิงก์แอป (เช่น discord:)",
   "chrome.urls": "ลิงก์ (พิมพ์แล้วกด Enter)",
@@ -47,7 +47,7 @@ function ProgramInfo({ programs, chosen }: { programs: ProgramData[]; chosen: st
   if (programs.length === 0) {
     return (
       <p className="mt-1 text-xs text-amber-300">
-        ยังไม่มีโปรแกรมที่อนุญาต{" "}
+        ยังไม่มีแอปที่อนุญาต{" "}
         <Link href="/programs/" className="text-sky-400 underline">
           ไปเพิ่มที่หน้า โปรแกรม
         </Link>
@@ -57,8 +57,8 @@ function ProgramInfo({ programs, chosen }: { programs: ProgramData[]; chosen: st
   if (!program) return null;
   return (
     <p className="mt-1 break-all font-mono text-xs text-slate-500">
-      {program.path}
-      {program.args.length > 0 && ` ${program.args.join(" ")}`}
+      {program.kind === "uri" ? program.uri : program.path}
+      {program.kind === "exe" && program.args.length > 0 && ` ${program.args.join(" ")}`}
     </p>
   );
 }
@@ -117,7 +117,7 @@ export default function ActionEditor({ index, action, types, programs, errorsFor
               )}
               {programs.map((p) => (
                 <option key={p.name} value={p.name}>
-                  {p.name}
+                  {p.kind === "uri" ? `${p.name} (ลิงก์แอป)` : p.name}
                 </option>
               ))}
             </select>

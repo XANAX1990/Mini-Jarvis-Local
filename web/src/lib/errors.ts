@@ -26,8 +26,8 @@ const EXACT: Record<string, string> = {
 
 export function thaiError(message: string): string {
   if (EXACT[message]) return EXACT[message];
-  const inUse = /^in use by preset '(.*)'$/.exec(message);
-  if (inUse) return `ใช้อยู่ใน preset "${inUse[1]}" ต้องเอาออกจาก preset นั้นก่อน`;
+  const inUse = /^in use by preset (.*)$/.exec(message);
+  if (inUse) return `ใช้อยู่ใน preset ${inUse[1].replaceAll("'", '"')} ต้องเอาออกจาก preset เหล่านั้นก่อน`;
   const used = /^'(.*)' is already used by preset '(.*)'$/.exec(message);
   if (used) return `วลี "${used[1]}" ถูกใช้ใน preset "${used[2]}" แล้ว ใช้ซ้ำกันไม่ได้`;
   const contains = /^'(.*)' contains the phrase '(.*)' of preset '(.*)': Jarvis could not tell which one you mean$/.exec(message);

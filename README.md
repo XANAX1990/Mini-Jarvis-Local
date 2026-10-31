@@ -39,7 +39,7 @@ One process (`python -m jarvis listen`, or the Startup shortcut) does everything
 | Thai speech-to-text with faster-whisper (local; optional GPU) | ✅ Done |
 | Fuzzy matching of speech to presets | ✅ Done |
 | Spoken reply with Piper (Thai voice) | ✅ Done (beeps if no voice file is present) |
-| Start automatically when I log in | ✅ Done (shortcut tested; not yet through a full log-out/in) |
+| Start automatically when I log in | ✅ Done (tested through a full log-out/in; the web page is up with no window open) |
 | Web UI on this PC: mic button, master switch, last command, today's log | ✅ Done |
 | Edit presets in the browser (phrase tags, ordered steps, test button) without touching JSON | ✅ Done |
 | Command log by day, and "add this misheard line as a phrase" | ✅ Done |

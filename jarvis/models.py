@@ -18,7 +18,8 @@ NAME_PATTERN = r"^[a-z0-9-]{1,32}$"
 Name = Annotated[str, StringConstraints(pattern=NAME_PATTERN)]
 
 BLOCKED_URI_SCHEMES = {"file", "javascript", "vbscript", "data", "shell", "search-ms", "ms-msdt"}
-URI_SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*:")
+# at least two characters: a single letter is a drive (C:\\...), which would start any file path
+URI_SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]+:")
 PERIODS = ("today", "week", "month")
 
 # Programs that run other commands, and script files. A preset written from the web may not start them:

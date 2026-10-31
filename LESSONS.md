@@ -25,3 +25,9 @@
 - **Root cause:** the API only refused exact duplicates and warned on near-duplicates. The matcher refuses to guess when a transcript holds full phrases of two presets, or is a fragment of phrases of two presets. A phrase containing another preset's phrase therefore can never match, and as a fragment-of-two it made the existing commands ambiguous too.
 - **Fix:** before saving, run the real matcher on the resulting presets (`matcher.unmatched_phrases`). A save that stops a phrase of another preset from matching is refused (422, naming the phrase and preset); a phrase added from the log must match; in the editor a phrase that cannot match is a warning.
 - **Rule:** validate a saved phrase by asking the matcher, not by string rules, and compare before/after so a save can never break a command that worked. Tests that read the live `presets.json` (`test_spending_phrases`) caught it first: keep them.
+
+## 2026-11-01 · A test run migrated the owner's real presets.json
+- **Symptom:** after wiring a one-time migration into `main()`, `programs.json` appeared in the project folder and `presets.json` had `run` steps without a `path`, though only the test suite had been run.
+- **Root cause:** two tests called `main(["list"])` and only stubbed some of the startup helpers (`ensure_presets_file`, `load_presets`). The new `migrate_legacy_runs` and `ensure_programs_file` still ran against the real files in the project folder.
+- **Fix:** `tests/conftest.py` has an autouse fixture that stubs every startup helper for every test, and a session fixture that fails the run if `presets.json`, `programs.json` or `settings.json` changed while the tests ran.
+- **Rule:** a function that writes the owner's files must never be reachable from a test without an explicit temp path. Whenever a new startup step touches a real file, add it to the autouse stub in the same commit, and run the suite once with the real files copied aside.

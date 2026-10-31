@@ -10,6 +10,7 @@ Security rules and audit checklist for Jarvis (local Python voice launcher on Wi
 | The local web API | `127.0.0.1:3003` | Whoever can write presets or press "test" can start any program on my PC |
 | Voice recordings and transcripts | `logs/` | What I (and people near me) said |
 | `presets.json` | Project folder | Decides what speech and the web can trigger |
+| `programs.json` | Project folder | The allow-list of programs a preset can start: whoever can add to it without my click can start any program |
 | `settings.json` | Project folder | Hotkey, thresholds |
 | `SLIPS_API_TOKEN` | Jarvis `.env` | Read access to my spending data |
 
@@ -17,7 +18,7 @@ Security rules and audit checklist for Jarvis (local Python voice launcher on Wi
 
 1. **Microphone audio**: my voice, but also people nearby, videos, games and calls
 2. **The local web API** (`127.0.0.1:3003`): my browser, but also **any web page open in that browser** can try to send requests to localhost (CSRF, DNS rebinding)
-3. `presets.json` and `settings.json` (edited through the API or by hand)
+3. `presets.json`, `programs.json` and `settings.json` (edited through the API or by hand)
 4. Global keyboard hook (`keyboard` library) — sees every key I press
 5. Downloaded model files (Whisper, Piper voices) and npm packages for the web
 6. Responses from the Slip Tracker API
@@ -25,12 +26,12 @@ Security rules and audit checklist for Jarvis (local Python voice launcher on Wi
 ## Project rules
 
 - [ ] Speech can only **select a preset by name**. Transcript text is never used to build a command, a path, a URL or an argument.
-- [ ] No `shell=True`, `os.system`, `eval` or `exec` anywhere. Programs start with `subprocess.Popen([path, *args])` or `os.startfile` using values from `presets.json` only.
+- [ ] No `shell=True`, `os.system`, `eval` or `exec` anywhere. A `run` step starts a program with `subprocess.Popen([path, *args])` using the path and args of its entry in `programs.json` (a preset only names the entry); `open` and `uri` use `os.startfile` with values from `presets.json` only.
 - [ ] Below the match threshold → do nothing (and say "ไม่เข้าใจ"). Never "best guess" a preset.
 - [ ] It only listens after a key press or a click, stops by itself after silence or `max_seconds`, and never listens continuously. The master switch "off" unregisters the hotkey and disables the mic button. If a wake word is added, presets that close apps or change files require a spoken or key confirmation.
 - [ ] Keyboard hook: register only the configured hotkey. Never record, log or store any other key presses. `/api/hotkey/capture` returns only the one combo pressed and doesn't save it.
 - [ ] Jarvis runs as my normal user, never as administrator, and refuses to start when it is elevated (`jarvis/privileges.py`, every command). Autostart uses the Startup folder, not a service or a scheduled task with highest privileges.
-- [ ] `presets.json` is validated on load (known action types only, required fields present). Invalid file → refuse to start with a clear error.
+- [ ] `presets.json` and `programs.json` are validated on load (known action types only, required fields present, every `run` step names a program that exists). Invalid file → refuse to start with a clear error.
 - [ ] Audio is not kept by default: `last.wav` is overwritten each time. Transcript logs are kept for a limited time (e.g. 30 days) and never committed.
 - [ ] Models are downloaded only from known repos, versions noted in the README; voice and wake-word licenses noted (non-commercial ones are for personal use only).
 
@@ -49,13 +50,21 @@ Security rules and audit checklist for Jarvis (local Python voice launcher on Wi
 
 ### Presets written from the web
 - [ ] Action types come from a fixed list (`run`, `open`, `uri`, `chrome`, `wait`, later `spending`). Unknown type → 422.
-- [ ] `run`: path must be absolute, exist and end in `.exe`; args are a list of strings (max 20, each ≤ 500 chars). Never joined into a command string. Shells and script hosts (`cmd`, `powershell`, `pwsh`, `wscript`, `cscript`, `mshta`, `rundll32`, `wsl`, ...) are refused from the web: with args they would turn "start a program" into "run any command". The check follows symlinks and ignores trailing dots/spaces; it is best effort (a renamed copy gets past it), and `presets.json` itself is yours to edit.
-- [ ] `open`: path must be absolute and exist, and must not be a script (`.bat .cmd .ps1 .vbs .js .hta .msi ...`) or one of the shells above.
+- [ ] `run`: see **Programs** below: a preset only names a program, it never carries a path or args.
+- [ ] `open`: from the web only a folder, or a file whose type is one of `pdf txt md docx xlsx pptx png jpg jpeg gif mp3 mp4`, judged after symlinks and short names are resolved and trailing dots/spaces dropped. No `.lnk`, `.url`, scripts or programs. A hand-edited `presets.json` is not checked.
 - [ ] `chrome`: each URL must be `http://` or `https://` only.
 - [ ] `uri`: scheme must match `^[a-z][a-z0-9+.-]+:` (two characters or more: a single letter is a drive path such as `C:\...`, which would start any file) and is refused if it is `file`, `javascript`, `vbscript`, `data`, `shell`, `search-ms`, `ms-msdt`, or starts with `ms-` (Windows protocol handlers that have been abused to run code).
 - [ ] Preset names `^[a-z0-9-]{1,32}$`; phrases ≤ 100 chars, ≤ 20 per preset; reply ≤ 200 chars; ≤ 20 steps; `wait` 0–30 s.
 - [ ] Saves are atomic (`.tmp` + `os.replace`) and keep `presets.json.bak`. An invalid save leaves `presets.json` untouched.
 - [ ] "Test" (`POST /api/presets/{name}/test`) runs the **saved** preset only, never a body sent with the request.
+
+### Programs (`programs.json`): the allow-list for `run`
+- [ ] A preset's `run` step is `{"type": "run", "program": "<name>"}` and nothing else. A `path` or `args` in a preset is refused (422), and so is a name that is not in `programs.json`.
+- [ ] An entry is `{path, args}`: path absolute, ending in `.exe`, and the file must exist when it is added; args are a list of strings (max 20, each ≤ 500 chars), never joined into a command string. Names `^[a-z0-9-]{1,32}$`.
+- [ ] **Adding a program from the web (`POST /api/programs`) needs a Yes/No box on the desktop** (`MessageBoxW`, topmost, default button No) that shows the name, the real path (variables and links resolved) and every argument. No, closed, or no answer within 60 s → nothing is saved (403). Only one box at a time: a second request gets 409. A request that fails validation never opens a box.
+- [ ] Deleting a program needs no box (it only shrinks the list) but is refused (409) while a preset uses it.
+- [ ] Editing `programs.json` by hand needs nothing: whoever can edit the file can already run anything as me.
+- [ ] Saves are atomic and keep `programs.json.bak`. `run` steps that still carry their own path are moved into `programs.json` automatically at start (once; `presets.json.bak` keeps the old file).
 
 ### Slip Tracker integration (spending questions)
 - [ ] `SLIPS_API_URL` and `SLIPS_API_TOKEN` come from Jarvis' `.env` only; never in `presets.json`, code, logs or error messages.
@@ -66,17 +75,26 @@ Security rules and audit checklist for Jarvis (local Python voice launcher on Wi
 - [ ] Remember: answers are spoken out loud, so anyone in the room hears my spending.
 
 ### Files that must never be tracked
-`.env`, `logs/`, `voices/`, `models/`, `.venv/`, any recorded `.wav`, `settings.json`, `presets.json` (my own presets; `presets.example.json` is the tracked starter that is copied on first run), `presets.json.bak`, `presets.json.tmp`, `web/node_modules/`, `web/.next/`, `web/out/`.
+`.env`, `logs/`, `voices/`, `models/`, `.venv/`, any recorded `.wav`, `settings.json`, `presets.json` and `programs.json` (my own presets and programs; `presets.example.json` and `programs.example.json` are the tracked starters that are copied on first run), their `.bak` and `.tmp` files, `web/node_modules/`, `web/.next/`, `web/out/`.
 
 ### Accepted risks (decided by the owner, 2026-11-01)
 - **CSP allows `script-src 'unsafe-inline'`.** The Next.js static export puts its start-up scripts inline in every page. The page loads nothing from other origins (`default-src 'self'`, `connect-src 'self'`, no external fonts or scripts). Revisit with script hashes if the page ever shows content from outside.
-- **The shell/script deny-list for presets written from the web is best effort.** A renamed copy of `cmd.exe` gets past it, `python.exe` and `node.exe` are not blocked (my own tools may need them), and a `presets.json` edited by hand is not checked at all: whoever can edit the file can already run anything as me.
 - **The local API has no login.** Host, Origin and `X-Jarvis` protect against web pages and DNS rebinding, not against another program running as me, which could do the same things without the API.
+
+- **The desktop confirmation is a control on the desktop, not on the program.** It stops web pages and anything that can only call the API; it does not stop software that already runs as me and can click on my desktop (UI automation). I accept that, as with the missing login.
+
+### Known gaps (not decided yet)
+- **`uri` steps accept any scheme that is not blocked.** Another app's protocol handler (`steam:`, `discord:`, ...) can be started from the web. An allow-list like the one for `run` would close it.
 
 ### Tests that must exist
 - [ ] Wrong `Host` → 403
 - [ ] POST without `X-Jarvis` → 403; POST with a foreign `Origin` → 403
-- [ ] `uri` with `file:` / `ms-msdt:` → 422; `chrome` with `javascript:` → 422; `run` with a relative path → 422
+- [ ] `uri` with `file:` / `ms-msdt:` → 422; `chrome` with `javascript:` → 422
+- [ ] A `run` step naming a program that is not in `programs.json` → 422; a `path` or `args` in a `run` step → 422
+- [ ] Adding a program: No → nothing saved; no answer in time → nothing saved; a request that fails validation never opens a box; a second request while a box is open → 409; the box shows the real path and every argument
+- [ ] Deleting a program a preset uses → 409
+- [ ] `open` with `.bat` / `.lnk` / `.url` / `.exe` → 422
+- [ ] The test run never changes the owner's `presets.json`, `programs.json` or `settings.json`
 - [ ] Invalid preset save leaves `presets.json` byte-for-byte unchanged
 
 ## Rules that apply to every project

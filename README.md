@@ -54,7 +54,7 @@ One process (`python -m jarvis listen`, or the Startup shortcut) does everything
     "phrases": ["เปิดโหมดเกม", "โหมดเล่นเกม"],
     "reply": "เปิดโหมดเกมแล้ว",
     "actions": [
-      { "type": "run", "path": "%LocalAppData%\\Discord\\Update.exe", "args": ["--processStart", "Discord.exe"] },
+      { "type": "run", "program": "discord" },
       { "type": "uri", "target": "roblox:" },
       { "type": "wait", "seconds": 3 },
       { "type": "chrome", "urls": ["https://www.roblox.com/home"] }
@@ -63,10 +63,25 @@ One process (`python -m jarvis listen`, or the Startup shortcut) does everything
 }
 ```
 
-Action types: `run` (an exe with args), `open` (a file, folder or `.lnk` shortcut), `uri` (a protocol link like `discord:`), `chrome` (a new window with URLs), `wait`, and `spending` (answers a spending question, see below). You can edit them in the browser instead of this file.
+Action types: `run` (a program from `programs.json`, below), `open` (a folder, or a pdf/txt/md/docx/xlsx/pptx/png/jpg/jpeg/gif/mp3/mp4 file), `uri` (a protocol link like `discord:`), `chrome` (a new window with URLs), `wait`, and `spending` (answers a spending question, see below). You can edit them in the browser instead of this file.
 Chrome goes last on purpose: whatever opens last ends up in front.
 
-**`presets.json` is yours and is not committed** (it is git-ignored, so your own apps, sites and phrases stay private). [`presets.example.json`](presets.example.json) is the tracked starter: the first time Jarvis starts and finds no `presets.json`, it copies the example.
+### Programs: what `run` may start
+
+A `run` step never carries a path or arguments: it names a program from **`programs.json`**, which is the allow-list.
+
+```json
+{
+  "discord": { "path": "%LocalAppData%\\Discord\\Update.exe", "args": ["--processStart", "Discord.exe"] }
+}
+```
+
+- A program is an absolute path to an existing `.exe` plus its arguments. Edit the file by hand, or use the **Programs** page.
+- **Adding a program from the web needs a Yes/No box on the Windows desktop** (always on top, default No, showing the name, the real path and every argument). No, or no answer within 60 s, means nothing is saved. Deleting needs no box, but is refused while a preset still uses the program.
+- The first start after an upgrade moves the programs your presets already run into `programs.json` for you (the old file is kept as `presets.json.bak`).
+- `programs.json` is yours and git-ignored; [`programs.example.json`](programs.example.json) is the starter.
+
+**`presets.json` and `programs.json` are yours and are not committed** (they are git-ignored, so your own apps, sites and phrases stay private). [`presets.example.json`](presets.example.json) and [`programs.example.json`](programs.example.json) are the tracked starters: the first time Jarvis starts and finds no `presets.json`, it copies them.
 
 ## Tech stack
 
@@ -132,7 +147,7 @@ curl.exe http://127.0.0.1:3003/api/state
 curl.exe -X POST http://127.0.0.1:3003/api/armed -H "Content-Type: application/json" -H "X-Jarvis: 1" -H "Origin: http://127.0.0.1:3003" -d "{\"armed\": false}"
 ```
 
-Endpoints: `state`, `armed`, `listen/toggle`, `presets` (+ `PUT`/`DELETE` `{name}`, `{name}/test`), `action-types`, `logs` (+ `dates`, `{id}/add-phrase`), `settings`, `hotkey/capture`, `mic/test` (records 3 s on request, keeps nothing). Presets saved from the web are validated (known action types, absolute `.exe` paths that exist, `http(s)` URLs, no `file:`/`ms-*` URIs) and written atomically, keeping `presets.json.bak`. Non-ASCII text in `curl.exe` must go through a UTF-8 file (`--data-binary @body.json`).
+Endpoints: `state`, `armed`, `listen/toggle`, `presets` (+ `PUT`/`DELETE` `{name}`, `{name}/test`), `programs` (+ `DELETE` `{name}`; `POST` waits for the Yes/No box), `action-types`, `logs` (+ `dates`, `{id}/add-phrase`), `settings`, `hotkey/capture`, `mic/test` (records 3 s on request, keeps nothing). Presets saved from the web are validated (known action types, `run` only by program name, `open` only folders and a short list of document types, `http(s)` URLs, no `file:`/`ms-*` URIs) and written atomically, keeping `presets.json.bak`. Non-ASCII text in `curl.exe` must go through a UTF-8 file (`--data-binary @body.json`).
 
 ### Ask how much you spent
 
@@ -171,6 +186,8 @@ jarvis/
 ├─ stt.py           # faster-whisper wrapper
 ├─ matcher.py       # transcript → preset (pure, tested)
 ├─ presets.py       # load presets.json, run actions
+├─ programs.py      # programs.json (the allow-list for run), its atomic saves and the one-time migration
+├─ confirm.py       # the Yes/No box on the desktop that adding a program needs
 ├─ models.py        # pydantic models for presets: used for the file and the API
 ├─ store.py         # atomic saves of presets.json (+ .bak)
 ├─ api.py           # the local web API and its security middleware
@@ -183,8 +200,8 @@ jarvis/
 └─ single.py        # one `listen` at a time (named mutex)
 web/                # Next.js static export, served from web/out/
 docs/screenshots/   # README images (sample data)
-presets.example.json # the starter presets (tracked)
-presets.json        # yours, git-ignored, created from the example on first run
+presets.example.json, programs.example.json # the starters (tracked)
+presets.json, programs.json # yours, git-ignored, created from the examples on first run
 settings.json       # not committed (copy settings.example.json)
 voices/             # Piper voice files (.onnx + .onnx.json), not committed
 logs/               # not committed

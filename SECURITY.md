@@ -1,36 +1,78 @@
 # Security: Jarvis
 
-Security rules and audit checklist for Jarvis (local Python voice launcher on Windows: push-to-talk, faster-whisper, fuzzy matching, Piper). Claude Code: follow these rules while writing code, and follow **Audit procedure** at the bottom when asked to "run the security audit".
+Security rules and audit checklist for Jarvis (local Python voice launcher on Windows: tap-to-talk hotkey or web button, faster-whisper, fuzzy matching, Piper, plus a local web UI served by the same process on `127.0.0.1:3003`). Claude Code: follow these rules while writing code, and follow **Audit procedure** at the bottom when asked to "run the security audit".
 
 ## What we protect
 
 | Asset | Where it lives | Why it matters |
 |---|---|---|
 | My PC | The apps and files presets can open | Jarvis can start programs on my machine |
+| The local web API | `127.0.0.1:3003` | Whoever can write presets or press "test" can start any program on my PC |
 | Voice recordings and transcripts | `logs/` | What I (and people near me) said |
-| `presets.json` | Project folder | Decides what speech can trigger |
+| `presets.json` | Project folder | Decides what speech and the web can trigger |
+| `settings.json` | Project folder | Hotkey, thresholds |
+| `SLIPS_API_TOKEN` | Jarvis `.env` | Read access to my spending data |
 
 ## Entry points
 
 1. **Microphone audio**: my voice, but also people nearby, videos, games and calls
-2. `presets.json`
-3. Downloaded model files (Whisper, Piper voices)
-4. The Slip Tracker API's answer (`spending` presets: read only, JSON from `127.0.0.1`)
+2. **The local web API** (`127.0.0.1:3003`): my browser, but also **any web page open in that browser** can try to send requests to localhost (CSRF, DNS rebinding)
+3. `presets.json` and `settings.json` (edited through the API or by hand)
+4. Global keyboard hook (`keyboard` library) — sees every key I press
+5. Downloaded model files (Whisper, Piper voices) and npm packages for the web
+6. Responses from the Slip Tracker API
 
 ## Project rules
 
 - [ ] Speech can only **select a preset by name**. Transcript text is never used to build a command, a path, a URL or an argument.
 - [ ] No `shell=True`, `os.system`, `eval` or `exec` anywhere. Programs start with `subprocess.Popen([path, *args])` or `os.startfile` using values from `presets.json` only.
 - [ ] Below the match threshold → do nothing (and say "ไม่เข้าใจ"). Never "best guess" a preset.
-- [ ] Push-to-talk stays the default, so it isn't listening all the time. If a wake word is added, presets that close apps or change files require a spoken or key confirmation.
+- [ ] It only listens after a key press or a click, stops by itself after silence or `max_seconds`, and never listens continuously. The master switch "off" unregisters the hotkey and disables the mic button. If a wake word is added, presets that close apps or change files require a spoken or key confirmation.
+- [ ] Keyboard hook: register only the configured hotkey. Never record, log or store any other key presses. `/api/hotkey/capture` returns only the one combo pressed and doesn't save it.
 - [ ] Jarvis runs as my normal user, never as administrator. Autostart uses the Startup folder, not a service or a scheduled task with highest privileges.
 - [ ] `presets.json` is validated on load (known action types only, required fields present). Invalid file → refuse to start with a clear error.
 - [ ] Audio is not kept by default: `last.wav` is overwritten each time. Transcript logs are kept for a limited time (e.g. 30 days) and never committed.
-- [ ] `spending` presets only read from the local Slip Tracker API. `SLIPS_API_URL` must be `127.0.0.1` or `localhost` (the token is never sent elsewhere); the token lives in `.env` (git-ignored), never in `presets.json`, the log or the spoken answer; errors are spoken in one short line, details only in the log.
 - [ ] Models are downloaded only from known repos, versions noted in the README; voice and wake-word licenses noted (non-commercial ones are for personal use only).
 
+### Local web API (`127.0.0.1:3003`)
+- [ ] uvicorn binds to `127.0.0.1` only, never `0.0.0.0`. No ngrok, no port forwarding, never deployed.
+- [ ] **Host allow-list:** every request whose `Host` header isn't `127.0.0.1:3003` or `localhost:3003` → 403 (blocks DNS rebinding).
+- [ ] **Every non-GET request** (POST/PUT/DELETE) must have:
+  - header `X-Jarvis: 1` (a page on another site can't add a custom header without a CORS preflight, which we never approve)
+  - `Origin` equal to `http://127.0.0.1:3003` or `http://localhost:3003` (plus `http://localhost:3004` only when `JARVIS_DEV=1`); missing or other → 403
+  - `Content-Type: application/json`
+- [ ] **No CORS** in normal mode. In dev mode (`JARVIS_DEV=1`) allow only the exact origin `http://localhost:3004`, never `*`, never with credentials.
+- [ ] GET endpoints never change anything (no "GET to run a preset").
+- [ ] Every request body is validated with pydantic (types, lengths, enums). Unknown fields are rejected.
+- [ ] Errors returned to the browser: short message + field name. No stack traces, file paths or exception text.
+- [ ] The web UI shows transcripts, preset names and paths as plain text (React escaping). No `dangerouslySetInnerHTML`.
+
+### Presets written from the web
+- [ ] Action types come from a fixed list (`run`, `open`, `uri`, `chrome`, `wait`, later `spending`). Unknown type → 422.
+- [ ] `run`: path must be absolute, exist and end in `.exe`; args are a list of strings (max 20, each ≤ 500 chars). Never joined into a command string.
+- [ ] `open`: path must be absolute and exist.
+- [ ] `chrome`: each URL must be `http://` or `https://` only.
+- [ ] `uri`: scheme must match `^[a-z][a-z0-9+.-]*:` and is refused if it is `file`, `javascript`, `vbscript`, `data`, `shell`, `search-ms`, `ms-msdt`, or starts with `ms-` (Windows protocol handlers that have been abused to run code).
+- [ ] Preset names `^[a-z0-9-]{1,32}$`; phrases ≤ 100 chars, ≤ 20 per preset; reply ≤ 200 chars; ≤ 20 steps; `wait` 0–30 s.
+- [ ] Saves are atomic (`.tmp` + `os.replace`) and keep `presets.json.bak`. An invalid save leaves `presets.json` untouched.
+- [ ] "Test" (`POST /api/presets/{name}/test`) runs the **saved** preset only, never a body sent with the request.
+
+### Slip Tracker integration (spending questions)
+- [ ] `SLIPS_API_URL` and `SLIPS_API_TOKEN` come from Jarvis' `.env` only; never in `presets.json`, code, logs or error messages.
+- [ ] `SLIPS_API_URL` must point to `127.0.0.1` / `localhost`; refuse any other host.
+- [ ] Jarvis only calls the read-only `GET /summary`; it never sends writes to Slip Tracker.
+- [ ] 5 s timeout; on failure Jarvis speaks a generic message ("ระบบสลิปยังไม่เปิด"), details go to the log without the token.
+- [ ] Spoken amounts are not written to the transcript log (only the question and which preset ran).
+- [ ] Remember: answers are spoken out loud, so anyone in the room hears my spending.
+
 ### Files that must never be tracked
-`logs/`, `voices/`, `models/`, `.venv/`, `.env`, any recorded `.wav`.
+`.env`, `logs/`, `voices/`, `models/`, `.venv/`, any recorded `.wav`, `settings.json`, `presets.json.bak`, `web/node_modules/`, `web/.next/`, `web/out/`.
+
+### Tests that must exist
+- [ ] Wrong `Host` → 403
+- [ ] POST without `X-Jarvis` → 403; POST with a foreign `Origin` → 403
+- [ ] `uri` with `file:` / `ms-msdt:` → 422; `chrome` with `javascript:` → 422; `run` with a relative path → 422
+- [ ] Invalid preset save leaves `presets.json` byte-for-byte unchanged
 
 ## Rules that apply to every project
 

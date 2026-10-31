@@ -1,0 +1,37 @@
+import pytest
+
+from jarvis import __main__ as app
+from jarvis import privileges
+
+
+def test_is_admin_answers_with_a_bool_and_does_not_raise():
+    assert isinstance(privileges.is_admin(), bool)
+
+
+def test_is_admin_is_false_when_windows_cannot_say(monkeypatch):
+    class Broken:
+        def IsUserAnAdmin(self):
+            raise OSError("no")
+
+    monkeypatch.setattr(privileges.ctypes, "windll", type("W", (), {"shell32": Broken()})(), raising=False)
+    assert privileges.is_admin() is False
+
+
+@pytest.mark.parametrize("argv", [["list"], ["listen"], ["run", "game"], ["say", "hi"], ["autostart", "status"]])
+def test_every_command_refuses_to_run_as_administrator(argv, monkeypatch, capsys):
+    monkeypatch.setattr(privileges, "is_admin", lambda: True)
+    touched = []
+    monkeypatch.setattr(app, "ensure_presets_file", lambda: touched.append("created presets.json"))
+    monkeypatch.setattr(app, "load_presets", lambda *a, **k: touched.append("presets"))
+    assert app.main(argv) == 1
+    assert "administrator" in capsys.readouterr().err
+    assert touched == []  # it stopped before creating or reading presets, or starting anything
+
+
+def test_a_normal_user_is_not_blocked(monkeypatch, capsys):
+    monkeypatch.setattr(privileges, "is_admin", lambda: False)
+    monkeypatch.setattr(app, "ensure_presets_file", lambda: False)  # never touch the real presets.json
+    monkeypatch.setattr(app, "load_presets", lambda: {"game": {"phrases": ["เปิดโหมดเกม"]}})
+    assert app.main(["list"]) == 0
+    assert "game" in capsys.readouterr().out
+

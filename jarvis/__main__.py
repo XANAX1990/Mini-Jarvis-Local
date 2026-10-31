@@ -6,6 +6,7 @@ from dataclasses import replace
 
 from jarvis.audio import AudioError
 from jarvis.matcher import MIN_THRESHOLD
+from jarvis import privileges
 from jarvis.presets import (
     PresetError, ensure_presets_file, get_preset, load_presets, run_preset, spending_period, spoken_reply,
 )
@@ -184,6 +185,13 @@ def main(argv=None):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8")
     args = build_parser().parse_args(argv)
+    if privileges.is_admin():
+        print(
+            "Jarvis does not run as administrator (it would start every program elevated). "
+            "Open a normal terminal and try again.",
+            file=sys.stderr,
+        )
+        return 1
     try:
         if ensure_presets_file():
             print("created presets.json from presets.example.json (it is yours: edit it in the web UI or by hand)")

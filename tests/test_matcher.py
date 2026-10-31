@@ -108,3 +108,24 @@ def test_error_message_explains_the_floor():
 
 def test_match_itself_stays_flexible_for_tests_and_tools():
     assert match("เปิดโหมดเกม", PRESETS, threshold=0)[0] == "game"
+
+
+# ---- phrases that would not match back to their own preset ----
+
+def test_unmatched_phrases_is_empty_for_a_clean_set():
+    from jarvis.matcher import unmatched_phrases
+
+    assert unmatched_phrases(PRESETS) == set()
+
+
+def test_unmatched_phrases_finds_phrases_that_overlap_another_preset():
+    import copy
+
+    from jarvis.matcher import unmatched_phrases
+
+    presets = copy.deepcopy(PRESETS)
+    presets["game"]["phrases"].append("เปิดโหมดเกม และเปิดโหมดทำงาน")
+    presets["work"]["phrases"].append("เปิดโหมดเกม โหมดทำงาน")
+    bad = unmatched_phrases(presets)
+    assert ("game", "เปิดโหมดเกม และเปิดโหมดทำงาน") in bad and ("work", "เปิดโหมดเกม โหมดทำงาน") in bad
+    assert ("game", "เปิดโหมดเกม") in bad  # the plain command broke as well

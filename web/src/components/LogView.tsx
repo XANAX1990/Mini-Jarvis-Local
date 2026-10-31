@@ -150,13 +150,13 @@ function LogRow({ entry, presets }: { entry: LogEntry; presets: PresetData[] }) 
       setMessage({
         ok: true,
         text: r.added
-          ? `เพิ่มแล้วใน ${selected} พูดประโยคนี้ได้เลย${r.warnings.length ? ` (คล้ายกับวลีใน ${r.warnings[0].preset})` : ""}`
+          ? `เพิ่มแล้วใน ${selected} พูดประโยคนี้ได้เลย${r.warnings.some((w) => w.kind === "similar") ? " (คล้ายกับวลีของ preset อื่น ระวังสลับกัน)" : ""}`
           : `มีวลีนี้ใน ${selected} อยู่แล้ว`,
       });
     } catch (e) {
       setMessage({
         ok: false,
-        text: e instanceof ApiError && e.fields.length ? thaiError(e.fields[0].message) : "เพิ่มไม่สำเร็จ ลองใหม่อีกครั้ง",
+        text: e instanceof ApiError && e.fields.length ? e.fields.map((f) => thaiError(f.message)).join(" · ") : "เพิ่มไม่สำเร็จ ลองใหม่อีกครั้ง",
       });
     } finally {
       setBusy(false);

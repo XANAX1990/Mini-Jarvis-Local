@@ -22,7 +22,7 @@ from starlette.datastructures import Headers, MutableHeaders
 from jarvis import log as jarvis_log
 from jarvis.audio import AudioError
 from jarvis.engine import Refused
-from jarvis.matcher import normalize
+from jarvis.matcher import normalize, unmatched_phrases
 from jarvis.models import ACTION_TYPES, NAME_PATTERN, Name, Preset, PresetCreate, missing_paths
 from jarvis.presets import PresetError
 from jarvis.settings import BOUNDS, Settings, save_settings, validate_hotkey
@@ -213,7 +213,49 @@ def check_phrases(presets, name):
         for known, (other, other_phrase) in others.items():
             score = fuzz.ratio(heard, known)
             if score >= SIMILAR_SCORE and len(warnings) < MAX_WARNINGS:
-                warnings.append({"phrase": phrase, "preset": other, "similar_to": other_phrase, "score": round(score)})
+                warnings.append({"kind": "similar", "phrase": phrase, "preset": other, "similar_to": other_phrase, "score": round(score)})
+    return errors, warnings
+
+
+def _why_unmatched(presets, name, phrase):
+    """Why Jarvis would not match `phrase` of preset `name` back to it, in one short sentence."""
+    heard = normalize(phrase)
+    for other, preset in presets.items():
+        if other == name:
+            continue
+        for known in preset["phrases"]:
+            inside = normalize(known)
+            if inside != heard and inside in heard:
+                return f"'{phrase}' contains the phrase '{known}' of preset '{other}': Jarvis could not tell which one you mean"
+    for other, preset in presets.items():
+        if other == name:
+            continue
+        for known in preset["phrases"]:
+            outside = normalize(known)
+            if outside != heard and heard in outside:
+                return f"'{phrase}' is part of the phrase '{known}' of preset '{other}': Jarvis could not tell which one you mean"
+    return f"'{phrase}' is too close to other phrases to be recognised"
+
+
+def check_matching(old, new, name, threshold, must_work=(), skip=()):
+    """(errors, warnings) about whether the phrases of `new` still work, judged by the real matcher.
+
+    A save that would stop a phrase of another preset from being recognised is an error: it breaks a
+    command that works today. A phrase of preset `name` that cannot be recognised is an error if it
+    is in `must_work` (adding it was the whole point), else a warning. `skip`: phrases already
+    reported as duplicates."""
+    before, after = unmatched_phrases(old, threshold), unmatched_phrases(new, threshold)
+    errors, warnings = [], []
+    for other, phrase in sorted(after - before):
+        if other != name:
+            errors.append({"field": "phrases", "message": f"saving this would stop Jarvis recognising '{phrase}' of preset '{other}'"})
+    for owner, phrase in sorted(after):
+        if owner == name and phrase not in skip:
+            message = _why_unmatched(new, name, phrase)
+            if phrase in must_work:
+                errors.append({"field": "phrases", "message": message})
+            elif len(warnings) < MAX_WARNINGS:
+                warnings.append({"kind": "unmatchable", "phrase": phrase, "message": message})
     return errors, warnings
 
 
@@ -269,11 +311,17 @@ def create_app(engine, store, *, settings_path, logs_dir, port=PORT, dev=False, 
     def listing():
         return [{"name": name, **preset} for name, preset in engine.presets.items()]
 
-    def commit(new_presets, name, preset=None):
-        """Path and phrase checks, then save + reload. Returns warnings.
+    def commit(new_presets, name, preset=None, must_work=()):
+        """Path, phrase and matching checks, then save + reload. Returns warnings.
 
         All problems are reported together; the file is untouched if there is any."""
         errors, warnings = check_phrases(new_presets, name)
+        taken = {normalize(q) for other, v in new_presets.items() if other != name for q in v["phrases"]}
+        duplicates = {p for p in new_presets[name]["phrases"] if normalize(p) in taken}
+        match_errors, match_warnings = check_matching(
+            engine.presets, new_presets, name, engine.settings.match_threshold, must_work, skip=duplicates
+        )
+        errors, warnings = errors + match_errors, warnings + match_warnings
         if preset is not None:  # saved from the web: the files it starts must exist
             errors = [{"field": f, "message": m} for f, m in missing_paths(preset)] + errors
         if errors:
@@ -375,7 +423,7 @@ def create_app(engine, store, *, settings_path, logs_dir, port=PORT, dev=False, 
                 Preset.model_validate(presets[body.preset])
             except ValidationError as e:
                 raise ApiError(422, "invalid", _field_errors(e.errors())) from None
-            warnings = commit(presets, body.preset)
+            warnings = commit(presets, body.preset, must_work={transcript})
         return {"name": body.preset, "warnings": warnings, "added": True}
 
     # -- settings and hotkey --

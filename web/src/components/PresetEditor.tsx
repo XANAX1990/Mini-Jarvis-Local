@@ -190,11 +190,21 @@ export default function PresetEditor() {
           ))}
         </ul>
       )}
-      {warnings.length > 0 && (
+      {warnings.some((w) => w.kind === "unmatchable") && (
+        <div role="status" className="rounded-lg border border-amber-800 bg-amber-950/40 p-3 text-sm text-amber-200">
+          <p className="font-medium">บันทึกแล้ว แต่มีวลีที่ Jarvis จะไม่จับคู่ (พูดแล้วไม่ทำงาน ควรลบหรือแก้):</p>
+          <ul className="mt-1 list-disc pl-6">
+            {warnings.filter((w) => w.kind === "unmatchable").map((w, i) => (
+              <li key={i}>{thaiError(w.message ?? "")}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {warnings.some((w) => w.kind === "similar") && (
         <div role="status" className="rounded-lg border border-amber-800 bg-amber-950/40 p-3 text-sm text-amber-200">
           <p className="font-medium">บันทึกแล้ว แต่มีวลีที่คล้ายกับ preset อื่นมาก (อาจสลับกันตอนพูด):</p>
           <ul className="mt-1 list-disc pl-6">
-            {warnings.map((w, i) => (
+            {warnings.filter((w) => w.kind === "similar").map((w, i) => (
               <li key={i}>
                 &quot;{w.phrase}&quot; คล้ายกับ &quot;{w.similar_to}&quot; ใน {w.preset} ({w.score}%)
               </li>

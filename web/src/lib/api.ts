@@ -107,10 +107,12 @@ export interface ActionType {
 }
 
 export interface PhraseWarning {
+  kind: "similar" | "unmatchable";
   phrase: string;
-  preset: string;
-  similar_to: string;
-  score: number;
+  preset?: string; // similar: the other preset
+  similar_to?: string;
+  score?: number;
+  message?: string; // unmatchable: why Jarvis would not recognise the phrase
 }
 
 type PresetBody = Omit<PresetData, "name">;

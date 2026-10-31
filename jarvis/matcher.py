@@ -68,3 +68,17 @@ def match(transcript, presets, threshold=DEFAULT_THRESHOLD):
     if best_score - runner_up < MIN_MARGIN:
         return None, best_score
     return best_name, best_score
+
+
+def unmatched_phrases(presets, threshold=DEFAULT_THRESHOLD):
+    """{(preset, phrase)} that `match` does not send back to their own preset.
+
+    Saying such a phrase exactly would not run it: it overlaps another preset's phrases, and the
+    matcher refuses to guess between presets. Used before saving, so a new phrase cannot silently
+    break a command that works today."""
+    return {
+        (name, phrase)
+        for name, preset in presets.items()
+        for phrase in preset["phrases"]
+        if match(phrase, presets, threshold)[0] != name
+    }

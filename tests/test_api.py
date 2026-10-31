@@ -248,9 +248,10 @@ def test_the_same_phrase_in_two_presets_is_refused_and_names_the_other_preset(en
 
 
 def test_very_similar_phrases_are_saved_with_a_warning(env):
-    r = env.post("/api/presets", {"name": "notes", **env.new_preset(phrases=["เปิดโหมดเกมส์"])})
+    # one letter different in the middle: not a fragment of the other, so both keep working
+    r = env.post("/api/presets", {"name": "notes", **env.new_preset(phrases=["เปิดโหมดแกม"])})
     assert r.status_code == 201
-    assert [(w["preset"], w["similar_to"]) for w in r.json()["warnings"]] == [("game", "เปิดโหมดเกม")]
+    assert [(w["kind"], w["preset"], w["similar_to"]) for w in r.json()["warnings"]] == [("similar", "game", "เปิดโหมดเกม")]
 
 
 # ---- SECURITY.md: presets written from the web ----
@@ -640,3 +641,82 @@ def test_a_missing_microphone_is_a_short_503(env):
     r = env.post("/api/mic/test")
     assert r.status_code == 503 and r.json() == {"error": "no_microphone", "fields": []}
     assert "secret" not in r.text
+
+
+# ---- a phrase must not break commands that work today ----
+
+REAL = {
+    "game": {"phrases": ["เปิดโหมดเกม", "โหมดเล่นเกม", "โหมดเกม"], "reply": "x", "actions": []},
+    "work": {"phrases": ["เปิดโหมดทำงาน", "โหมดทำงาน", "โหมดงาน"], "reply": "x", "actions": []},
+}
+
+
+def real_env(tmp_path):
+    e = Env(tmp_path)
+    e.engine.reload_presets(json.loads(json.dumps(REAL)))
+    e.presets_path.write_text(json.dumps(REAL, ensure_ascii=False, indent=2), encoding="utf-8")
+    return e
+
+
+def combined(env, preset, phrase):
+    entry = jarvis_log.log_command("hotkey", phrase, None, 100.0, "no_match", 5.0, directory=env.logs)
+    return env.post(f"/api/logs/{entry['id']}/add-phrase", {"preset": preset})
+
+
+@pytest.mark.parametrize("preset, phrase, broken", [
+    ("work", "เปิดโหมดเกม โหมดทำงาน", "โหมดเกม"),
+    ("game", "เปิดโหมดเกม และเปิดโหมดทำงาน", "โหมดทำงาน"),
+    ("work", "เปิดโหมดเกมส์", "เปิดโหมดเกม"),
+])
+def test_adding_a_phrase_that_would_break_another_command_is_refused(tmp_path, preset, phrase, broken):
+    e = real_env(tmp_path)
+    before = e.presets_path.read_bytes()
+    r = combined(e, preset, phrase)
+    assert r.status_code == 422
+    messages = [f["message"] for f in r.json()["fields"]]
+    assert any(m.startswith("saving this would stop Jarvis recognising") and f"'{broken}'" in m for m in messages)
+    assert any(m.startswith(f"'{phrase}'") for m in messages)  # and the phrase itself would never match
+    assert e.presets_path.read_bytes() == before
+    assert phrase not in e.engine.presets[preset]["phrases"]
+    for name, p in e.engine.presets.items():  # every command still works
+        for known in p["phrases"]:
+            assert match(known, e.engine.presets)[0] == name
+    e.engine.close()
+
+
+def test_a_harmless_phrase_can_still_be_added_from_the_log(tmp_path):
+    e = real_env(tmp_path)
+    r = combined(e, "work", "เปิดโหมดทำงานให้หน่อย")
+    assert r.status_code == 200 and r.json()["added"] is True and r.json()["warnings"] == []
+    assert match("เปิดโหมดทำงานให้หน่อย", e.engine.presets)[0] == "work"
+    e.engine.close()
+
+
+def test_the_editor_refuses_regressions_and_warns_about_a_phrase_that_cannot_match(tmp_path):
+    e = real_env(tmp_path)
+    work = {**REAL["work"], "phrases": REAL["work"]["phrases"] + ["เปิดโหมดเกม โหมดทำงาน"]}
+    r = e.put("/api/presets/work", work)
+    assert r.status_code == 422
+    assert any("stop Jarvis recognising 'โหมดเกม'" in f["message"] for f in r.json()["fields"])
+    # the combined phrase as its own preset breaks 'โหมดทำงาน' too
+    both = e.post("/api/presets", {"name": "both", **e.new_preset(phrases=["เปิดโหมดเกม และเปิดโหมดทำงาน"])})
+    assert both.status_code == 422
+    # a phrase that only contains one of them breaks nothing: saved, with a warning that it cannot match
+    r = e.post("/api/presets", {"name": "done", **e.new_preset(phrases=["เปิดโหมดงานเสร็จแล้วนะ"])})
+    assert r.status_code == 201, r.text
+    assert [(w["kind"], w["phrase"]) for w in r.json()["warnings"]] == [("unmatchable", "เปิดโหมดงานเสร็จแล้วนะ")]
+    e.engine.close()
+
+
+def test_a_preset_that_already_has_a_broken_phrase_is_told_so_on_the_next_save(tmp_path):
+    e = real_env(tmp_path)
+    broken = json.loads(json.dumps(REAL))
+    broken["game"]["phrases"].append("เปิดโหมดเกม และเปิดโหมดทำงาน")
+    broken["work"]["phrases"].append("เปิดโหมดเกม โหมดทำงาน")
+    e.engine.reload_presets(broken)  # what the file looked like after both were added
+    r = e.put("/api/presets/game", {k: v for k, v in broken["game"].items()})
+    assert r.status_code == 201 or r.status_code == 200
+    kinds = {(w["kind"], w["phrase"]) for w in r.json()["warnings"] if w["kind"] == "unmatchable"}
+    assert ("unmatchable", "เปิดโหมดเกม และเปิดโหมดทำงาน") in kinds
+    assert ("unmatchable", "โหมดเกม") in kinds or ("unmatchable", "เปิดโหมดเกม") in kinds
+    e.engine.close()

@@ -19,3 +19,9 @@
 - **Root cause:** replies are spoken in a background thread (`Speaker.speak` returns at once). With tap-to-talk the next tap can come while the reply is still playing, so the mic recorded the speaker.
 - **Fix:** the engine calls `wait_speaking` (`Speaker.wait`) before the start beep, so recording only begins when nothing is playing.
 - **Rule:** anything that plays sound must finish before the mic opens; test the mic path with a reply still playing, not only with silence.
+
+## 2026-10-31 · A phrase added from the log broke the commands it was meant to help
+- **Symptom:** after "เพิ่มเป็นวลี" on `เปิดโหมดเกม และเปิดโหมดทำงาน` (and a similar line for `work`), saying the same thing did nothing, and even the plain `เปิดโหมดเกม`, `โหมดเกม` and `โหมดทำงาน` stopped working. The log showed `no_match` with score 100.
+- **Root cause:** the API only refused exact duplicates and warned on near-duplicates. The matcher refuses to guess when a transcript holds full phrases of two presets, or is a fragment of phrases of two presets. A phrase containing another preset's phrase therefore can never match, and as a fragment-of-two it made the existing commands ambiguous too.
+- **Fix:** before saving, run the real matcher on the resulting presets (`matcher.unmatched_phrases`). A save that stops a phrase of another preset from matching is refused (422, naming the phrase and preset); a phrase added from the log must match; in the editor a phrase that cannot match is a warning.
+- **Rule:** validate a saved phrase by asking the matcher, not by string rules, and compare before/after so a save can never break a command that worked. Tests that read the live `presets.json` (`test_spending_phrases`) caught it first: keep them.

@@ -23,6 +23,14 @@ export function thaiError(message: string): string {
   if (EXACT[message]) return EXACT[message];
   const used = /^'(.*)' is already used by preset '(.*)'$/.exec(message);
   if (used) return `วลี "${used[1]}" ถูกใช้ใน preset "${used[2]}" แล้ว ใช้ซ้ำกันไม่ได้`;
+  const contains = /^'(.*)' contains the phrase '(.*)' of preset '(.*)': Jarvis could not tell which one you mean$/.exec(message);
+  if (contains) return `วลี "${contains[1]}" มีวลี "${contains[2]}" ของ preset "${contains[3]}" ซ้อนอยู่ข้างใน Jarvis แยกไม่ออกว่าหมายถึงอันไหน จึงจับคู่ไม่ได้`;
+  const partOf = /^'(.*)' is part of the phrase '(.*)' of preset '(.*)': Jarvis could not tell which one you mean$/.exec(message);
+  if (partOf) return `วลี "${partOf[1]}" เป็นส่วนหนึ่งของวลี "${partOf[2]}" ใน preset "${partOf[3]}" Jarvis แยกไม่ออกว่าหมายถึงอันไหน จึงจับคู่ไม่ได้`;
+  const tooClose = /^'(.*)' is too close to other phrases to be recognised$/.exec(message);
+  if (tooClose) return `วลี "${tooClose[1]}" ใกล้เคียงกับวลีอื่นมาก Jarvis จะจับคู่ไม่ได้`;
+  const breaks = /^saving this would stop Jarvis recognising '(.*)' of preset '(.*)'$/.exec(message);
+  if (breaks) return `ถ้าบันทึกแบบนี้ คำสั่ง "${breaks[1]}" ของ preset "${breaks[2]}" จะใช้ไม่ได้อีก`;
   const typing = /^'(.*)' is a typing key: use it with a modifier, e\.g\. (.*)$/.exec(message);
   if (typing) return `"${typing[1]}" เป็นปุ่มพิมพ์ ใช้เดี่ยว ๆ ไม่ได้ (จะพิมพ์ไม่ออก) ลองใช้คู่กับ Ctrl/Alt เช่น ${typing[2]}`;
   if (message.startsWith("a combo must end with a normal key")) return "คอมโบต้องลงท้ายด้วยปุ่มปกติ เช่น ctrl+alt+j";

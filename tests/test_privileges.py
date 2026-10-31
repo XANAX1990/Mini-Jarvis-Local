@@ -23,7 +23,7 @@ def test_every_command_refuses_to_run_as_administrator(argv, quiet_main, monkeyp
     touched = []
     monkeypatch.setattr(app, "ensure_presets_file", lambda: touched.append("created presets.json"))
     monkeypatch.setattr(app, "ensure_programs_file", lambda: touched.append("created programs.json"))
-    monkeypatch.setattr(app, "migrate_legacy_runs", lambda *a, **k: touched.append("migrated"))
+    monkeypatch.setattr(app, "migrate_legacy_steps", lambda *a, **k: touched.append("migrated"))
     monkeypatch.setattr(app, "load_presets", lambda *a, **k: touched.append("presets"))
     assert app.main(argv) == 1
     assert "administrator" in capsys.readouterr().err

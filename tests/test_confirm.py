@@ -1,9 +1,10 @@
 import threading
 import time
 
-import pytest
-
 from jarvis import confirm
+
+EXE = {"kind": "exe", "path": "C:\\Windows\\System32\\calc.exe", "args": ["--x", "y z"]}
+LINK = {"kind": "uri", "uri": "roblox:"}
 
 
 class FakeBox:
@@ -30,11 +31,34 @@ class FakeBox:
         self.closed.set()
 
 
-def test_the_box_shows_the_name_the_path_and_every_argument():
-    text = confirm.program_text("calc", "C:\\Windows\\System32\\calc.exe", ["--x", "y z"])
-    for needle in ("calc", "C:\\Windows\\System32\\calc.exe", '"--x"', '"y z"', "60"):
+def test_adding_an_exe_shows_the_name_the_path_and_every_argument():
+    text = confirm.change_text("calc", None, EXE)
+    for needle in ("เพิ่ม", "calc", "โปรแกรม (.exe)", "C:\\Windows\\System32\\calc.exe", '"--x"', '"y z"', "60", "= ไม่เพิ่ม"):
         assert needle in text
-    assert "(ไม่มี)" in confirm.program_text("calc", "C:\\a.exe", [])
+    assert "(ไม่มี)" in confirm.change_text("calc", None, {**EXE, "args": []})
+    assert "ค่าเดิม" not in text  # nothing to compare when adding
+
+
+def test_adding_a_link_shows_the_whole_link():
+    text = confirm.change_text("roblox", None, LINK)
+    assert "ลิงก์แอป" in text and "ลิงก์: roblox:" in text and "ไฟล์:" not in text
+
+
+def test_changing_an_app_puts_the_old_value_next_to_the_new_one():
+    new = {**EXE, "path": "C:\\Windows\\notepad.exe", "args": ["-p"]}
+    text = confirm.change_text("calc", EXE, new, used_by=["game", "work"])
+    assert text.index("ค่าเดิม") < text.index("calc.exe") < text.index("ค่าใหม่") < text.index("notepad.exe")
+    for needle in ('"--x"', '"y z"', '"-p"', "game, work", "ไม่แก้ (ใช้ค่าเดิมต่อ)", "แก้แอป"):
+        assert needle in text
+
+
+def test_changing_the_kind_shows_both_kinds():
+    text = confirm.change_text("calc", EXE, LINK)
+    assert "โปรแกรม (.exe)" in text and "ลิงก์แอป" in text and "roblox:" in text
+
+
+def test_a_change_without_users_does_not_mention_presets():
+    assert "preset ที่ใช้แอปนี้" not in confirm.change_text("calc", EXE, LINK)
 
 
 def test_the_box_is_topmost_a_warning_and_defaults_to_no():
@@ -66,11 +90,13 @@ def test_a_fast_answer_does_not_close_anything():
     assert box.pressed == []
 
 
-def test_ask_program_passes_the_text_and_the_timeout(monkeypatch):
+def test_ask_change_passes_the_text_and_the_timeout(monkeypatch):
     seen = {}
     monkeypatch.setattr(confirm, "ask", lambda text, timeout=None, **k: seen.update(text=text, timeout=timeout) or confirm.NO)
-    assert confirm.ask_program("calc", "C:\\a.exe", ["-x"], timeout=7) == confirm.NO
+    assert confirm.ask_change("calc", None, EXE, timeout=7) == confirm.NO
     assert seen["timeout"] == 7 and "calc" in seen["text"] and "7 วินาที" in seen["text"]
+    confirm.ask_change("calc", EXE, LINK, used_by=["game"], timeout=9)
+    assert "game" in seen["text"] and "ค่าเดิม" in seen["text"]
 
 
 def test_the_real_windows_backend_is_wired_correctly():

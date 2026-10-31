@@ -1,7 +1,7 @@
 """Load + validate presets.json and run preset actions.
 
 Speech only ever selects a preset *name*. Nothing here builds a command from
-transcript text: every URL comes from presets.json and every program from programs.json.
+transcript text: every URL comes from presets.json and every app (program or app link) from programs.json.
 """
 import json
 import os
@@ -29,7 +29,7 @@ class PresetError(Exception):
 
 
 _PRESETS = TypeAdapter(dict[Name, Preset])
-_ACTION_TYPES = {"run", "open", "uri", "chrome", "wait", "spending"}
+_ACTION_TYPES = {"app", "open", "chrome", "wait", "spending"}
 
 
 def describe_error(loc, message):
@@ -52,7 +52,7 @@ def describe_error(loc, message):
 def validate_presets(data, programs=None):
     """Return `data` as plain dicts if valid, else raise PresetError with a clear message.
 
-    With `programs` (programs.json), every `run` step must name a program in it."""
+    With `programs` (programs.json), every `app` step must name an entry in it."""
     if not isinstance(data, dict) or not data:
         raise PresetError("presets file must be a non-empty object of presets")
     try:
@@ -64,9 +64,9 @@ def validate_presets(data, programs=None):
     if programs is not None:
         for name, preset in presets.items():
             for i, action in enumerate(preset["actions"], 1):
-                if action["type"] == "run" and action["program"] not in programs:
+                if action["type"] == "app" and action["name"] not in programs:
                     raise PresetError(
-                        f"preset '{name}' action {i}: program '{action['program']}' is not in programs.json "
+                        f"preset '{name}' action {i}: app '{action['name']}' is not in programs.json "
                         "(add it on the Programs page, or in programs.json)"
                     )
     return presets
@@ -110,15 +110,20 @@ def _find_chrome():
 
 def run_action(action, programs=None):
     kind = action["type"]
-    if kind == "run":
-        name = action.get("program")  # an old-style step (a path, no program) must fail, not crash
-        program = (programs or {}).get(name)
-        if program is None:  # only programs.json decides what may start
-            raise OSError(f"program '{name}' is not in programs.json")
-        path = os.path.expandvars(program["path"])
-        args = [os.path.expandvars(a) for a in program.get("args", [])]
-        subprocess.Popen([path, *args])  # list form, never shell=True
-    elif kind in ("open", "uri"):
+    if kind == "app":
+        name = action.get("name")  # a malformed step must fail, not crash
+        entry = (programs or {}).get(name)
+        if entry is None:  # only programs.json decides what may start
+            raise OSError(f"app '{name}' is not in programs.json")
+        if entry["kind"] == "uri":
+            os.startfile(entry["uri"])
+        else:
+            path = os.path.expandvars(entry["path"])
+            args = [os.path.expandvars(a) for a in entry.get("args", [])]
+            subprocess.Popen([path, *args])  # list form, never shell=True
+    elif kind in ("run", "uri"):  # the old shapes: migrated at start, and never run from a preset
+        raise OSError(f"a '{kind}' step is not supported any more: use an app from programs.json")
+    elif kind == "open":
         os.startfile(os.path.expandvars(action["target"]))
     elif kind == "chrome":
         subprocess.Popen([_find_chrome(), "--new-window", *action["urls"]])

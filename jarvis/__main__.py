@@ -8,7 +8,7 @@ from jarvis.audio import AudioError
 from jarvis.matcher import MIN_THRESHOLD
 from jarvis import privileges
 from jarvis.programs import (
-    PROGRAMS_PATH, ProgramError, ProgramStore, ensure_programs_file, migrate_legacy_runs,
+    PROGRAMS_PATH, ProgramError, ProgramStore, ensure_programs_file, migrate_legacy_steps,
 )
 from jarvis.presets import (
     PRESETS_PATH, PresetError, ensure_presets_file, get_preset, load_presets, run_preset, spending_period, spoken_reply,
@@ -200,9 +200,10 @@ def main(argv=None):
             print("created presets.json from presets.example.json (it is yours: edit it in the web UI or by hand)")
             if ensure_programs_file():
                 print("created programs.json from programs.example.json (the programs a preset may run)")
-        moved = migrate_legacy_runs(PRESETS_PATH, PROGRAMS_PATH)
+        moved = migrate_legacy_steps(PRESETS_PATH, PROGRAMS_PATH)
         if moved:
-            print(f"moved the programs your presets run into programs.json: {', '.join(moved)} (old presets.json kept as presets.json.bak)")
+            added = f", added to programs.json: {', '.join(moved.created)}" if moved.created else ""
+            print(f"updated {moved.steps} preset step(s) to the app format{added} (old presets.json kept as presets.json.bak)")
         programs = ProgramStore()
         programs.load()
         presets = load_presets(programs=programs.programs)

@@ -1,9 +1,10 @@
 """Ask the person at this PC to confirm something dangerous in a native Yes/No box.
 
-Adding a program to programs.json from the web (a page, or anything that can call the local API) must be
-approved here, on the desktop: the box is topmost, shows the program's name, its full path and every
-argument, and defaults to No. No answer within the timeout is No. Only one box is shown at a time (the
-API answers 409 to a second request).
+Adding or changing an app in programs.json from the web (a page, or anything that can call the local API)
+must be approved here, on the desktop: the box is topmost, shows the app's name and what it would start
+(the real path and every argument, or the full link; for a change, the old and the new value side by
+side), and defaults to No. No answer within the timeout is No. Only one box is shown at a time (the API
+answers 409 to a second request).
 """
 import ctypes
 import threading
@@ -20,19 +21,42 @@ _IDYES, _IDNO = 6, 7
 _WM_COMMAND = 0x111
 FLAGS = _MB_YESNO | _MB_ICONWARNING | _MB_DEFBUTTON2 | _MB_SETFOREGROUND | _MB_TOPMOST
 
-TITLE = "Jarvis: ยืนยันการเพิ่มโปรแกรม"
+TITLE = "Jarvis: ยืนยันการเปลี่ยนรายการแอป"
 
 
-def program_text(name, path, args, timeout=TIMEOUT_SECONDS):
-    """What the box says. `path` should be the path that will really be started."""
-    shown = "\n".join(f'    "{a}"' for a in args) if args else "    (ไม่มี)"
-    return (
-        "มีคำขอเพิ่มโปรแกรมที่ Jarvis จะเปิดได้ (จากหน้าเว็บหรือ API ของ Jarvis)\n\n"
-        f"ชื่อ: {name}\n"
-        f"ไฟล์: {path}\n"
-        f"อาร์กิวเมนต์:\n{shown}\n\n"
-        "กด Yes เฉพาะเมื่อคุณเป็นคนสั่งเพิ่มเอง และรู้จักโปรแกรมนี้\n"
-        f"กด No หรือไม่ตอบใน {timeout} วินาที = ไม่เพิ่ม"
+def _lines(entry):
+    """What an entry would start, one line per fact. `entry` is the view from programs.describe."""
+    if entry["kind"] == "uri":
+        return ["    ชนิด: ลิงก์แอป", f"    ลิงก์: {entry['uri']}"]
+    args = [f'        "{a}"' for a in entry["args"]] or ["        (ไม่มี)"]
+    return ["    ชนิด: โปรแกรม (.exe)", f"    ไฟล์: {entry['path']}", "    อาร์กิวเมนต์:", *args]
+
+
+def change_text(name, old, new, used_by=(), timeout=TIMEOUT_SECONDS):
+    """What the box says. `old` is None when an app is added. Entries are views (programs.describe)."""
+    if old is None:
+        head = ["มีคำขอเพิ่มแอปที่ Jarvis จะเปิดได้ (จากหน้าเว็บหรือ API ของ Jarvis)", "", f"ชื่อ: {name}", *_lines(new)]
+        outcome = "ไม่เพิ่ม"
+    else:
+        head = [
+            f'มีคำขอแก้แอป "{name}" ที่ Jarvis เปิดได้ (จากหน้าเว็บหรือ API ของ Jarvis)',
+            "",
+            "ค่าเดิม:",
+            *_lines(old),
+            "",
+            "ค่าใหม่:",
+            *_lines(new),
+        ]
+        if used_by:
+            head += ["", "preset ที่ใช้แอปนี้อยู่ (จะเปิดค่าใหม่แทน): " + ", ".join(used_by)]
+        outcome = "ไม่แก้ (ใช้ค่าเดิมต่อ)"
+    return "\n".join(
+        [
+            *head,
+            "",
+            "กด Yes เฉพาะเมื่อคุณเป็นคนสั่งเอง และรู้จักรายการนี้",
+            f"กด No หรือไม่ตอบใน {timeout} วินาที = {outcome}",
+        ]
     )
 
 
@@ -95,6 +119,6 @@ def ask(text, title=TITLE, timeout=TIMEOUT_SECONDS, backend=None):
     return TIMEOUT
 
 
-def ask_program(name, path, args, timeout=TIMEOUT_SECONDS):
-    """The confirmation for adding a program: YES, NO or TIMEOUT."""
-    return ask(program_text(name, path, args, timeout), timeout=timeout)
+def ask_change(name, old, new, used_by=(), timeout=TIMEOUT_SECONDS):
+    """The confirmation for adding (`old` is None) or changing an app: YES, NO or TIMEOUT."""
+    return ask(change_text(name, old, new, used_by, timeout), timeout=timeout)

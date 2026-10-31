@@ -8,8 +8,8 @@
     "reply": "เปิดโหมดเกมแล้ว",
     "actions": [
       {
-        "type": "run",
-        "program": "discord"
+        "type": "app",
+        "name": "discord"
       },
       {
         "type": "wait",

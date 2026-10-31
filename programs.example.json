@@ -1,5 +1,6 @@
 {
   "discord": {
+    "kind": "exe",
     "path": "%LocalAppData%\\Discord\\Update.exe",
     "args": [
       "--processStart",
@@ -7,7 +8,12 @@
     ]
   },
   "notepad": {
+    "kind": "exe",
     "path": "C:\\Windows\\notepad.exe",
     "args": []
+  },
+  "calculator": {
+    "kind": "uri",
+    "uri": "calculator:"
   }
 }

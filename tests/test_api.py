@@ -42,14 +42,14 @@ class Env:
         self.rig.log_command = lambda *a: jarvis_log.log_command(*a, directory=self.logs)
         self.engine._log_command = self.rig.log_command
         self.programs_path = tmp_path / "programs.json"
-        self.programs_path.write_text(json.dumps({"tool": {"path": EXE, "args": []}}, indent=2), encoding="utf-8")
+        self.programs_path.write_text(json.dumps({"tool": {"kind": "exe", "path": EXE, "args": []}}, indent=2), encoding="utf-8")
         self.program_store = ProgramStore(self.programs_path)
         self.program_store.load()
-        self.asked = []  # what the confirmation box was asked: (name, path, args)
+        self.asked = []  # what the confirmation box was asked: (name, old view or None, new view, used_by)
         self.answer = "yes"  # what the person "clicks"; set to "no" or "timeout"
 
-        def person(name, path, args):
-            self.asked.append((name, path, list(args)))
+        def person(name, old, new, used_by=()):
+            self.asked.append((name, old, new, list(used_by)))
             return self.answer
 
         self.app = create_app(
@@ -72,7 +72,7 @@ class Env:
         return self.client.delete(url, headers=headers or {**H, "Content-Type": "application/json"})
 
     def new_preset(self, **over):
-        return {"phrases": ["เปิดโน้ต"], "reply": "ได้เลย", "actions": [{"type": "run", "program": "tool"}], **over}
+        return {"phrases": ["เปิดโน้ต"], "reply": "ได้เลย", "actions": [{"type": "app", "name": "tool"}], **over}
 
 
 @pytest.fixture
@@ -291,10 +291,10 @@ BAD_ACTIONS = [
     {"type": "run", "program": "tool", "args": ["x"]},  # args live in programs.json too
     {"type": "run", "program": "tool", "path": EXE},
     {"type": "run"},
-    {"type": "run", "program": "nope"},  # not in programs.json
-    {"type": "run", "program": "../tool"},
-    {"type": "run", "program": "Tool"},
-    {"type": "run", "program": ["tool"]},
+    {"type": "app", "name": "nope"},  # not in programs.json
+    {"type": "app", "name": "../tool"},
+    {"type": "app", "name": "Tool"},
+    {"type": "app", "name": ["tool"]},
     {"type": "open", "target": "relative\\file.txt"},
     {"type": "wait", "seconds": 31},
     {"type": "wait", "seconds": -1},
@@ -318,16 +318,15 @@ def test_dangerous_or_malformed_actions_are_refused_and_nothing_is_saved(env, ac
 
 def test_valid_actions_of_every_type_are_accepted(env):
     actions = [
-        {"type": "run", "program": "tool"},
+        {"type": "app", "name": "tool"},
         {"type": "open", "target": str(env.dir)},
-        {"type": "uri", "target": "discord:"},
         {"type": "chrome", "urls": ["https://example.com", "http://localhost:3000/x?y=1"]},
         {"type": "wait", "seconds": 2.5},
         {"type": "spending", "period": "week"},
     ]
     r = env.post("/api/presets", {"name": "all", **env.new_preset(phrases=["ทดลองทุกอย่าง"], actions=actions)})
     assert r.status_code == 201, r.text
-    assert env.engine.presets["all"]["actions"][0] == {"type": "run", "program": "tool"}
+    assert env.engine.presets["all"]["actions"][0] == {"type": "app", "name": "tool"}
 
 
 def test_open_paths_must_exist_and_the_error_does_not_echo_them(env, tmp_path):
@@ -338,9 +337,9 @@ def test_open_paths_must_exist_and_the_error_does_not_echo_them(env, tmp_path):
 
 
 def test_a_run_step_with_an_unknown_program_names_the_field(env):
-    r = env.post("/api/presets", {"name": "x", **env.new_preset(actions=[{"type": "run", "program": "nope"}])})
+    r = env.post("/api/presets", {"name": "x", **env.new_preset(actions=[{"type": "app", "name": "nope"}])})
     assert r.status_code == 422
-    assert r.json()["fields"] == [{"field": "actions.0.program", "message": "unknown program"}]
+    assert r.json()["fields"] == [{"field": "actions.0.name", "message": "unknown program"}]
 
 
 def test_limits_on_phrases_reply_and_steps(env):
@@ -357,7 +356,7 @@ def test_limits_on_phrases_reply_and_steps(env):
 
 
 def test_a_field_called_path_keeps_its_name_in_the_error(env):
-    r = env.post("/api/presets", {"name": "bad", **env.new_preset(actions=[{"type": "run", "program": "tool", "path": "calc.exe"}])})
+    r = env.post("/api/presets", {"name": "bad", **env.new_preset(actions=[{"type": "app", "name": "tool", "path": "calc.exe"}])})
     assert r.json()["fields"] == [{"field": "actions.0.path", "message": "Extra inputs are not permitted"}]
 
 
@@ -813,9 +812,9 @@ def test_open_judges_the_resolved_path_not_the_name(env, tmp_path, monkeypatch):
 def test_the_other_problems_of_a_refused_preset_are_still_reported(env, tmp_path):
     script = tmp_path / "x.bat"
     script.write_text("echo hi", encoding="utf-8")
-    actions = [{"type": "open", "target": str(script)}, {"type": "run", "program": "nope"}]
+    actions = [{"type": "open", "target": str(script)}, {"type": "app", "name": "nope"}]
     r = env.post("/api/presets", {"name": "two", **env.new_preset(actions=actions)})
-    assert {f["field"] for f in r.json()["fields"]} == {"actions.0.target", "actions.1.program"}
+    assert {f["field"] for f in r.json()["fields"]} == {"actions.0.target", "actions.1.name"}
 
 
 def test_a_hand_edited_presets_file_may_still_open_a_shortcut(tmp_path):
@@ -824,74 +823,150 @@ def test_a_hand_edited_presets_file_may_still_open_a_shortcut(tmp_path):
     assert validate_presets(data)["x"]["actions"][0]["type"] == "open"
 
 
-# ---- programs.json: the allow-list for `run` ----
+# ---- programs.json: the allow-list for `app` steps (programs and app links) ----
 
 SYSTEM32 = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32")
 CALC = os.path.join(SYSTEM32, "calc.exe")
+NOTEPAD = os.path.join(SYSTEM32, "notepad.exe")
+EXE_VIEW = {"kind": "exe", "path": os.path.realpath(CALC), "args": ["--x", "y z"]}
+LINK_VIEW = {"kind": "uri", "uri": "roblox:"}
 
 
 def add_program(env, **over):
-    return env.post("/api/programs", {"name": "calc", "path": CALC, "args": ["--x", "y z"], **over})
+    return env.post("/api/programs", {"name": "calc", "kind": "exe", "path": CALC, "args": ["--x", "y z"], **over})
 
 
-def test_list_programs(env):
-    assert env.get("/api/programs").json() == {"programs": [{"name": "tool", "path": EXE, "args": []}]}
+def add_link(env, **over):
+    return env.post("/api/programs", {"name": "roblox", "kind": "uri", "uri": "roblox:", **over})
 
 
-def test_a_run_step_names_a_program_and_the_preset_is_saved(env):
+def change(env, name, body, headers=H):
+    return env.put(f"/api/programs/{name}", body, headers=headers)
+
+
+def disk(env):
+    return json.loads(env.programs_path.read_text("utf-8"))
+
+
+def test_list_programs_shows_the_kind_and_the_fields(env):
+    add_link(env)
+    assert env.get("/api/programs").json() == {"programs": [
+        {"name": "tool", "kind": "exe", "path": EXE, "args": []},
+        {"name": "roblox", "kind": "uri", "uri": "roblox:"},
+    ]}
+
+
+def test_a_preset_names_an_app_and_is_saved(env):
     r = env.post("/api/presets", {"name": "p", **env.new_preset()})
     assert r.status_code == 201
-    assert json.loads(env.presets_path.read_text("utf-8"))["p"]["actions"] == [{"type": "run", "program": "tool"}]
+    assert json.loads(env.presets_path.read_text("utf-8"))["p"]["actions"] == [{"type": "app", "name": "tool"}]
+
+
+@pytest.mark.parametrize("step", [
+    {"type": "run", "program": "tool"},  # the earlier shape
+    {"type": "run", "path": EXE},
+    {"type": "uri", "target": "roblox:"},  # a link is an app in programs.json now, not a step of its own
+    {"type": "uri", "target": "file:///C:/Windows/notepad.exe"},
+    {"type": "app", "name": "tool", "uri": "roblox:"},
+    {"type": "app", "name": "tool", "path": EXE, "args": ["x"]},
+    {"type": "app", "name": "nope"},
+])
+def test_a_preset_cannot_carry_a_path_args_or_a_link_of_its_own(env, step):
+    before = env.presets_path.read_bytes()
+    r = env.post("/api/presets", {"name": "p", **env.new_preset(actions=[step])})
+    assert r.status_code == 422, step
+    assert env.presets_path.read_bytes() == before and "p" not in env.engine.presets
 
 
 def test_adding_a_program_asks_the_person_and_saves_it_on_yes(env):
     r = add_program(env)
     assert r.status_code == 201 and r.json() == {"name": "calc"}
-    assert env.asked == [("calc", os.path.realpath(CALC), ["--x", "y z"])]  # the real path and every argument
-    saved = json.loads(env.programs_path.read_text("utf-8"))
-    assert saved["calc"] == {"path": CALC, "args": ["--x", "y z"]} and "tool" in saved
+    assert env.asked == [("calc", None, EXE_VIEW, [])]  # the real path and every argument; nothing to compare
+    saved = disk(env)
+    assert saved["calc"] == {"kind": "exe", "path": CALC, "args": ["--x", "y z"]} and "tool" in saved
     assert env.program_store.programs["calc"]["args"] == ["--x", "y z"]  # in use at once
     assert env.get("/api/programs").json()["programs"][-1]["name"] == "calc"
     assert (env.dir / "programs.json.bak").exists() and not (env.dir / "programs.json.tmp").exists()
 
 
-def test_no_means_the_program_is_not_added(env):
-    env.answer = "no"
+def test_adding_an_app_link_asks_the_person_too(env):
+    r = add_link(env)
+    assert r.status_code == 201
+    assert env.asked == [("roblox", None, LINK_VIEW, [])]
+    assert disk(env)["roblox"] == {"kind": "uri", "uri": "roblox:"}
+
+
+@pytest.mark.parametrize("answer, error", [("no", "declined"), ("timeout", "no_answer")])
+@pytest.mark.parametrize("add", [add_program, add_link])
+def test_no_or_no_answer_means_nothing_is_added(env, answer, error, add):
+    env.answer = answer
     before = env.programs_path.read_bytes()
-    r = add_program(env)
-    assert r.status_code == 403 and r.json()["error"] == "declined"
-    assert env.programs_path.read_bytes() == before and "calc" not in env.program_store.programs
+    r = add(env)
+    assert r.status_code == 403 and r.json()["error"] == error
+    assert env.programs_path.read_bytes() == before and set(env.program_store.programs) == {"tool"}
     assert len(env.asked) == 1
-
-
-def test_no_answer_in_time_means_no(env):
-    env.answer = "timeout"
-    before = env.programs_path.read_bytes()
-    r = add_program(env)
-    assert r.status_code == 403 and r.json()["error"] == "no_answer"
-    assert env.programs_path.read_bytes() == before and "calc" not in env.program_store.programs
 
 
 def test_a_program_that_was_refused_cannot_be_used_by_a_preset(env):
     env.answer = "no"
     add_program(env)
-    r = env.post("/api/presets", {"name": "p", **env.new_preset(actions=[{"type": "run", "program": "calc"}])})
+    r = env.post("/api/presets", {"name": "p", **env.new_preset(actions=[{"type": "app", "name": "calc"}])})
     assert r.status_code == 422 and r.json()["fields"][0]["message"] == "unknown program"
 
 
 @pytest.mark.parametrize("over", [
-    {"path": "calc.exe"},  # not absolute
-    {"path": os.path.join(SYSTEM32, "drivers", "etc", "hosts")},  # not an .exe
-    {"path": os.path.join(SYSTEM32, "does-not-exist.exe")},
+    {"path": "calc.exe"}, {"path": os.path.join(SYSTEM32, "drivers", "etc", "hosts")},
+    {"path": os.path.join(SYSTEM32, "does-not-exist.exe")}, {"path": ""},
     {"name": "Calc"}, {"name": "../calc"}, {"name": ""}, {"name": "x" * 33},
     {"args": ["x"] * 21}, {"args": ["x" * 501]}, {"args": "not a list"}, {"args": [1]},
-    {"extra": 1}, {"path": ""},
+    {"extra": 1}, {"uri": "roblox:"}, {"kind": "bat"}, {"kind": None},
 ])
-def test_an_invalid_request_never_opens_a_box(env, over):
+def test_an_invalid_program_request_never_opens_a_box(env, over):
     before = env.programs_path.read_bytes()
     r = add_program(env, **over)
     assert r.status_code == 422, over
     assert env.asked == [] and env.programs_path.read_bytes() == before
+
+
+@pytest.mark.parametrize("uri", [
+    "file:///C:/Windows/notepad.exe", "FILE:foo", "ms-settings:", "ms-msdt:/id PCWDiagnostic", "javascript:alert(1)",
+    "vbscript:x", "data:text/html,x", "shell:startup", "search-ms:query=x",
+    "C:\\Windows\\System32\\calc.exe", "c:\\nonexistent\\evil.js", "D:/x/y.bat", "\\\\server\\share\\x.exe",
+    "no scheme here", "x:", "", "roblox", " roblox:", "roblox:\nx", "r" * 501,
+])
+def test_an_app_link_the_rules_refuse_never_opens_a_box(env, uri):
+    before = env.programs_path.read_bytes()
+    r = add_link(env, uri=uri)
+    assert r.status_code == 422, uri
+    assert env.asked == [] and env.programs_path.read_bytes() == before
+
+
+@pytest.mark.parametrize("uri", ["roblox:", "discord:", "steam://run/1", "calculator:", "ms2:", "https://example.com/x?y=1"])
+def test_a_well_formed_app_link_is_asked_about(env, uri):
+    assert add_link(env, uri=uri).status_code == 201
+    assert env.asked[0][2] == {"kind": "uri", "uri": uri}
+
+
+@pytest.mark.parametrize("add, over, field, message", [
+    (add_link, {"uri": "file:///x"}, "uri", "the 'file:' scheme is not allowed"),
+    (add_link, {"uri": "ms-settings:"}, "uri", "the 'ms-settings:' scheme is not allowed"),
+    (add_link, {"uri": "no scheme"}, "uri", "must start with a scheme such as discord:"),
+    (add_program, {"path": "calc.exe"}, "path", "must be an absolute path"),
+    (add_program, {"args": ["x"] * 21}, "args", "List should have at most 20 items after validation, not 21"),
+    (add_program, {"name": "Calc"}, "name", "String should match pattern '^[a-z0-9-]{1,32}$'"),
+    (add_link, {"name": "../x"}, "name", "String should match pattern '^[a-z0-9-]{1,32}$'"),
+])
+def test_errors_name_the_field_the_page_shows_not_the_kind(env, add, over, field, message):
+    """The web matches errors to inputs by field name, so a union's kind must not leak into it ("uri.uri")."""
+    r = add(env, **over)
+    assert r.status_code == 422 and r.json()["fields"] == [{"field": field, "message": message}]
+
+
+def test_change_errors_name_the_field_too(env):
+    assert change(env, "tool", {"kind": "uri", "uri": "ms-settings:"}).json()["fields"][0]["field"] == "uri"
+    assert change(env, "tool", {"kind": "exe", "path": "calc.exe", "args": []}).json()["fields"][0]["field"] == "path"
+    assert change(env, "tool", {"kind": "bat"}).json()["fields"] == [
+        {"field": "", "message": "Input tag 'bat' found using 'kind' does not match any of the expected tags: 'exe', 'uri'"}]
 
 
 def test_a_missing_file_error_does_not_echo_the_path(env):
@@ -908,7 +983,7 @@ def test_a_name_that_exists_is_a_conflict_and_opens_no_box(env):
 def test_a_second_request_while_a_box_is_open_gets_409(tmp_path):
     gate, started, calls = threading.Event(), threading.Event(), []
 
-    def slow(name, path, args):
+    def slow(name, old, new, used_by=()):
         calls.append(name)
         started.set()
         gate.wait(5)
@@ -919,8 +994,10 @@ def test_a_second_request_while_a_box_is_open_gets_409(tmp_path):
     t = threading.Thread(target=lambda: first.append(add_program(e)))
     t.start()
     assert started.wait(3)
-    second = add_program(e, name="other")
-    assert second.status_code == 409 and second.json()["error"] == "busy"
+    assert add_program(e, name="other").status_code == 409
+    assert add_link(e).json()["error"] == "busy"
+    assert change(e, "tool", {"kind": "exe", "path": NOTEPAD, "args": []}).json()["error"] == "busy"
+    assert e.delete("/api/programs/tool").json()["error"] == "busy"  # a delete waits for the box as well
     assert calls == ["calc"]  # no second box
     gate.set()
     t.join(5)
@@ -934,25 +1011,105 @@ def test_the_person_decides_even_for_a_shell(env):
     cmd = os.path.join(SYSTEM32, "cmd.exe")
     r = add_program(env, name="shell", path=cmd, args=["/c", "echo", "hi"])
     assert r.status_code == 201
-    assert env.asked[0][1].lower() == os.path.realpath(cmd).lower() and env.asked[0][2] == ["/c", "echo", "hi"]
+    assert env.asked[0][2]["path"].lower() == os.path.realpath(cmd).lower() and env.asked[0][2]["args"] == ["/c", "echo", "hi"]
 
+
+# ---- changing an app (PUT) ----
+
+def use_tool_in_two_presets(env):
+    for name, phrase in (("p1", "เปิดอย่างหนึ่ง"), ("p2", "เปิดอย่างสอง")):
+        assert env.post("/api/presets", {"name": name, **env.new_preset(phrases=[phrase])}).status_code == 201
+
+
+def test_changing_an_app_shows_the_old_value_next_to_the_new_one_and_saves_on_yes(env):
+    use_tool_in_two_presets(env)
+    r = change(env, "tool", {"kind": "exe", "path": CALC, "args": ["-new"]})
+    assert r.status_code == 200 and r.json() == {"name": "tool", "changed": True}
+    name, old, new, used_by = env.asked[0]
+    assert (name, old, used_by) == ("tool", {"kind": "exe", "path": EXE, "args": []}, ["p1", "p2"])
+    assert new == {"kind": "exe", "path": os.path.realpath(CALC), "args": ["-new"]}
+    assert disk(env)["tool"] == {"kind": "exe", "path": CALC, "args": ["-new"]}
+    assert env.program_store.programs["tool"]["args"] == ["-new"]  # the presets that use it run the new value now
+    assert env.engine.presets["p1"]["actions"] == [{"type": "app", "name": "tool"}]  # and still name it
+    assert (env.dir / "programs.json.bak").exists()
+
+
+def test_the_kind_can_change_too(env):
+    r = change(env, "tool", {"kind": "uri", "uri": "roblox:"})
+    assert r.status_code == 200
+    assert env.asked[0][1]["kind"] == "exe" and env.asked[0][2] == LINK_VIEW
+    assert disk(env)["tool"] == {"kind": "uri", "uri": "roblox:"}
+
+
+@pytest.mark.parametrize("answer, error", [("no", "declined"), ("timeout", "no_answer")])
+def test_no_or_no_answer_leaves_the_app_exactly_as_it_was(env, answer, error):
+    use_tool_in_two_presets(env)
+    env.answer = answer
+    before = env.programs_path.read_bytes()
+    r = change(env, "tool", {"kind": "exe", "path": CALC, "args": ["-new"]})
+    assert r.status_code == 403 and r.json()["error"] == error
+    assert env.programs_path.read_bytes() == before
+    assert env.program_store.programs["tool"] == {"kind": "exe", "path": EXE, "args": []}
+    assert not (env.dir / "programs.json.bak").exists()
+
+
+def test_saving_the_same_values_needs_no_box_and_changes_nothing(env):
+    before = env.programs_path.read_bytes()
+    r = change(env, "tool", {"kind": "exe", "path": EXE, "args": []})
+    assert r.status_code == 200 and r.json() == {"name": "tool", "changed": False}
+    assert env.asked == [] and env.programs_path.read_bytes() == before
+
+
+@pytest.mark.parametrize("body", [
+    {"kind": "exe", "path": "calc.exe", "args": []}, {"kind": "exe", "path": os.path.join(SYSTEM32, "nope-x.exe"), "args": []},
+    {"kind": "exe", "path": os.path.join(SYSTEM32, "drivers", "etc", "hosts")}, {"kind": "exe", "path": CALC, "args": ["x"] * 21},
+    {"kind": "exe", "path": CALC, "uri": "roblox:"}, {"kind": "uri", "uri": "file:///C:/x"}, {"kind": "uri", "uri": "ms-settings:"},
+    {"kind": "uri", "uri": "C:\\x\\a.exe"}, {"kind": "uri", "uri": "roblox:", "path": CALC}, {"kind": "bat"}, {}, {"name": "x", "kind": "uri", "uri": "roblox:"},
+])
+def test_an_invalid_change_never_opens_a_box_and_changes_nothing(env, body):
+    before = env.programs_path.read_bytes()
+    r = change(env, "tool", body)
+    assert r.status_code == 422, body
+    assert env.asked == [] and env.programs_path.read_bytes() == before
+
+
+def test_changing_an_app_that_does_not_exist_is_a_404_without_a_box(env):
+    r = change(env, "nope", {"kind": "exe", "path": CALC, "args": []})
+    assert r.status_code == 404 and env.asked == []
+
+
+def test_change_names_in_the_url_are_validated(env):
+    assert change(env, "Tool", {"kind": "exe", "path": CALC, "args": []}).status_code == 422
+    assert env.asked == []
+
+
+def test_changes_need_the_same_headers_as_any_write(env):
+    body = {"kind": "exe", "path": CALC, "args": []}
+    assert env.client.put("/api/programs/tool", json=body, headers={"Origin": BASE}).status_code == 403
+    assert env.client.put("/api/programs/tool", json=body, headers={"X-Jarvis": "1", "Origin": "https://evil.example"}).status_code == 403
+    assert env.asked == [] and env.program_store.programs["tool"]["path"] == EXE
+
+
+# ---- deleting ----
 
 def test_deleting_a_program_needs_no_box(env):
     add_program(env)
     env.asked.clear()
     r = env.delete("/api/programs/calc")
     assert r.status_code == 200 and env.asked == []
-    assert "calc" not in json.loads(env.programs_path.read_text("utf-8"))
+    assert "calc" not in disk(env)
     assert env.delete("/api/programs/calc").status_code == 404
 
 
-def test_a_program_a_preset_uses_cannot_be_deleted(env):
-    env.post("/api/presets", {"name": "p", **env.new_preset()})
+def test_a_program_a_preset_uses_cannot_be_deleted_and_the_answer_names_every_preset(env):
+    use_tool_in_two_presets(env)
     r = env.delete("/api/programs/tool")
     assert r.status_code == 409 and r.json()["error"] == "in_use"
-    assert "'p'" in r.json()["fields"][0]["message"]
-    assert "tool" in env.program_store.programs
-    env.delete("/api/presets/p")
+    assert r.json()["fields"] == [{"field": "name", "message": "in use by preset 'p1', 'p2'"}]
+    assert "tool" in env.program_store.programs and "tool" in disk(env)
+    env.delete("/api/presets/p1")
+    assert env.delete("/api/programs/tool").json()["fields"][0]["message"] == "in use by preset 'p2'"
+    env.delete("/api/presets/p2")
     assert env.delete("/api/programs/tool").status_code == 200  # free once nothing uses it
 
 
@@ -962,13 +1119,13 @@ def test_program_names_in_the_url_are_validated(env):
 
 
 def test_programs_endpoints_need_the_same_headers_as_any_write(env):
-    assert env.client.post("/api/programs", json={"name": "calc", "path": CALC}, headers={"Origin": BASE}).status_code == 403
-    assert env.client.post("/api/programs", json={"name": "calc", "path": CALC}, headers={"X-Jarvis": "1", "Origin": "https://evil.example"}).status_code == 403
+    assert env.client.post("/api/programs", json={"name": "calc", "kind": "exe", "path": CALC}, headers={"Origin": BASE}).status_code == 403
+    assert env.client.post("/api/programs", json={"name": "calc", "kind": "exe", "path": CALC}, headers={"X-Jarvis": "1", "Origin": "https://evil.example"}).status_code == 403
     assert env.client.delete("/api/programs/tool").status_code == 403
     assert env.asked == [] and "tool" in env.program_store.programs
 
 
-def test_the_test_button_runs_the_programs_the_preset_names(env):
+def test_the_test_button_runs_the_apps_the_preset_names(env):
     env.post("/api/presets", {"name": "p", **env.new_preset()})
     assert env.post("/api/presets/p/test").status_code == 200
     assert env.engine.wait_idle()

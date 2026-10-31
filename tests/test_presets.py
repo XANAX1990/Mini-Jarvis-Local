@@ -11,9 +11,9 @@ VALID = {
         "phrases": ["เปิดโหมดเกม"],
         "reply": "ok",
         "actions": [
-            {"type": "run", "program": "tool"},
+            {"type": "app", "name": "tool"},
             {"type": "open", "target": "C:\\file.lnk"},
-            {"type": "uri", "target": "roblox:"},
+            {"type": "spending", "period": "week"},
             {"type": "chrome", "urls": ["https://example.com"]},
             {"type": "wait", "seconds": 1.5},
         ],
@@ -69,19 +69,33 @@ def test_first_run_tells_the_owner_that_the_files_were_created(quiet_main, monke
     assert "created programs.json from programs.example.json" in out
 
 
-def test_a_start_that_moved_programs_says_which(quiet_main, monkeypatch, capsys):
-    monkeypatch.setattr(app, "migrate_legacy_runs", lambda *a, **k: ["discord-update", "notepad"])
+def test_a_start_that_updated_steps_says_so(quiet_main, monkeypatch, capsys):
+    from jarvis.programs import Migration
+
+    monkeypatch.setattr(app, "migrate_legacy_steps", lambda *a, **k: Migration(created=["discord-update", "roblox"], steps=5))
     assert app.main(["list"]) == 0
     out = capsys.readouterr().out
-    assert "discord-update, notepad" in out and "presets.json.bak" in out
+    assert "updated 5 preset step(s) to the app format" in out and "discord-update, roblox" in out and "presets.json.bak" in out
 
 
-TOOLS = {"tool": {"path": "C:\\tools\\a.exe", "args": ["--x"]}}
+def test_a_start_that_only_renamed_steps_says_so_without_a_list(quiet_main, monkeypatch, capsys):
+    from jarvis.programs import Migration
+
+    monkeypatch.setattr(app, "migrate_legacy_steps", lambda *a, **k: Migration(created=[], steps=2))
+    assert app.main(["list"]) == 0
+    out = capsys.readouterr().out
+    assert "updated 2 preset step(s)" in out and "added to programs.json" not in out
 
 
-def test_a_run_step_must_name_a_program_that_exists():
-    assert validate_presets(copy.deepcopy(VALID), TOOLS)["game"]["actions"][0] == {"type": "run", "program": "tool"}
-    with pytest.raises(PresetError, match="preset 'game' action 1: program 'tool' is not in programs.json"):
+TOOLS = {
+    "tool": {"kind": "exe", "path": "C:\\tools\\a.exe", "args": ["--x"]},
+    "link": {"kind": "uri", "uri": "roblox:"},
+}
+
+
+def test_an_app_step_must_name_an_entry_that_exists():
+    assert validate_presets(copy.deepcopy(VALID), TOOLS)["game"]["actions"][0] == {"type": "app", "name": "tool"}
+    with pytest.raises(PresetError, match="preset 'game' action 1: app 'tool' is not in programs.json"):
         validate_presets(copy.deepcopy(VALID), {})
     validate_presets(copy.deepcopy(VALID))  # without programs there is nothing to check against
 
@@ -96,41 +110,54 @@ def test_load_presets_checks_the_programs_too(tmp_path):
         load_presets(f, programs={})
 
 
-def test_a_run_step_starts_the_program_from_programs_json(monkeypatch):
+def test_an_app_step_starts_the_program_from_programs_json(monkeypatch):
     from jarvis import presets
 
     started = []
     monkeypatch.setattr(presets.subprocess, "Popen", lambda argv: started.append(argv))
     monkeypatch.setenv("JARVIS_TEST_DIR", "C:\\x")
-    programs = {"tool": {"path": "%JARVIS_TEST_DIR%\\a.exe", "args": ["--x", "%JARVIS_TEST_DIR%"]}}
-    presets.run_action({"type": "run", "program": "tool"}, programs)
+    programs = {"tool": {"kind": "exe", "path": "%JARVIS_TEST_DIR%\\a.exe", "args": ["--x", "%JARVIS_TEST_DIR%"]}}
+    presets.run_action({"type": "app", "name": "tool"}, programs)
     assert started == [["C:\\x\\a.exe", "--x", "C:\\x"]]  # a list: never joined into a command line
 
 
-def test_a_run_step_never_starts_anything_programs_json_does_not_name(monkeypatch):
+def test_an_app_step_opens_a_link_exactly_as_stored(monkeypatch):
     from jarvis import presets
 
-    started = []
+    opened, started = [], []
+    monkeypatch.setattr(presets.os, "startfile", lambda target: opened.append(target), raising=False)
     monkeypatch.setattr(presets.subprocess, "Popen", lambda argv: started.append(argv))
+    presets.run_action({"type": "app", "name": "link"}, TOOLS)
+    assert opened == ["roblox:"] and started == []
+
+
+def test_a_step_never_starts_anything_programs_json_does_not_name(monkeypatch):
+    from jarvis import presets
+
+    started, opened = [], []
+    monkeypatch.setattr(presets.subprocess, "Popen", lambda argv: started.append(argv))
+    monkeypatch.setattr(presets.os, "startfile", lambda target: opened.append(target), raising=False)
     for action in (
-        {"type": "run", "program": "nope"},
-        {"type": "run", "path": "C:\\Windows\\System32\\calc.exe"},  # the old shape: no longer runs
-        {"type": "run"},
+        {"type": "app", "name": "nope"},
+        {"type": "app"},
+        {"type": "run", "program": "tool"},  # the old shapes are not run from a preset any more
+        {"type": "run", "path": "C:\\Windows\\System32\\calc.exe"},
+        {"type": "uri", "target": "roblox:"},
     ):
         with pytest.raises(OSError):
-            presets.run_action(action, {"tool": {"path": "C:\\a.exe", "args": []}})
+            presets.run_action(action, TOOLS)
         with pytest.raises(OSError):
             presets.run_action(action, None)
-    assert started == []
+    assert started == [] and opened == []
 
 
-def test_a_failing_run_step_is_reported_and_the_rest_still_run(monkeypatch):
+def test_a_failing_app_step_is_reported_and_the_rest_still_run(monkeypatch):
     from jarvis import presets
 
     ran = []
     monkeypatch.setattr(presets.subprocess, "Popen", lambda argv: ran.append(argv))
     data = {"p": {"phrases": ["ก"], "reply": "", "actions": [
-        {"type": "run", "program": "gone"}, {"type": "run", "program": "tool"}]}}
+        {"type": "app", "name": "gone"}, {"type": "app", "name": "tool"}]}}
     log = []
     assert presets.run_preset(data, "p", log.append, programs=TOOLS) == 1
     assert ran == [["C:\\tools\\a.exe", "--x"]] and "gone" in log[0]
@@ -140,14 +167,16 @@ def test_a_failing_run_step_is_reported_and_the_rest_still_run(monkeypatch):
     "mutate, message",
     [
         (lambda p: p["actions"].append({"type": "format_disk"}), "does not match any of the expected tags"),
-        (lambda p: p["actions"].append({"type": "run"}), "actions[6].program: Field required"),
-        (lambda p: p["actions"].append({"type": "uri"}), "actions[6].target: Field required"),
+        (lambda p: p["actions"].append({"type": "app"}), "actions[6].name: Field required"),
+        (lambda p: p["actions"].append({"type": "uri", "target": "roblox:"}), "does not match any of the expected tags"),
+        (lambda p: p["actions"].append({"type": "run", "program": "tool"}), "does not match any of the expected tags"),
         (lambda p: p["actions"].append({"type": "chrome", "urls": []}), "at least 1 item"),
         (lambda p: p["actions"].append({"type": "wait", "seconds": -1}), "greater than or equal to 0"),
         (lambda p: p["actions"].append({"type": "wait", "seconds": True}), "valid integer"),
-        (lambda p: p["actions"].append({"type": "run", "program": "tool", "path": "C:\\a.exe"}), "actions[6].path: Extra inputs are not permitted"),
-        (lambda p: p["actions"].append({"type": "run", "path": "C:\\a.exe", "args": "x"}), "actions[6].program: Field required"),
-        (lambda p: p["actions"].append({"type": "run", "program": "Tool"}), "actions[6].program"),
+        (lambda p: p["actions"].append({"type": "app", "name": "tool", "path": "C:\\a.exe"}), "actions[6].path: Extra inputs are not permitted"),
+        (lambda p: p["actions"].append({"type": "app", "name": "tool", "uri": "roblox:"}), "actions[6].uri: Extra inputs are not permitted"),
+        (lambda p: p["actions"].append({"type": "app", "path": "C:\\a.exe", "args": "x"}), "actions[6].name: Field required"),
+        (lambda p: p["actions"].append({"type": "app", "name": "Tool"}), "actions[6].name"),
         (lambda p: p.pop("phrases"), "phrases"),
         (lambda p: p.update(phrases=[]), "phrases"),
         (lambda p: p.pop("reply"), "reply"),

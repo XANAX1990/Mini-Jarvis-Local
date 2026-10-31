@@ -25,7 +25,7 @@ from jarvis.audio import AudioError
 from jarvis.engine import Refused
 from jarvis.matcher import normalize, unmatched_phrases
 from jarvis import confirm as confirm_box
-from jarvis.models import ACTION_TYPES, NAME_PATTERN, Name, Preset, PresetCreate, ProgramCreate, open_problems, unknown_programs
+from jarvis.models import ACTION_TYPES, NAME_PATTERN, Name, Preset, PresetCreate, Program, ProgramCreate, open_problems, unknown_programs
 from jarvis.programs import describe
 from jarvis.presets import PresetError
 from jarvis.settings import BOUNDS, Settings, save_settings, validate_hotkey
@@ -153,6 +153,8 @@ def _field_errors(errors):
         where = list(err["loc"])
         if where and where[0] in ("body", "query", "path"):  # which part of the request, not a field
             where = where[1:]
+        if len(where) >= 2 and where[0] in ("exe", "uri"):  # the kind of a program body: pydantic adds it
+            where = where[1:]
         loc = [p for p in where if p not in _TAGS]
         out.append({"field": ".".join(str(p) for p in loc), "message": err["msg"].removeprefix("Value error, ")})
     return out
@@ -270,7 +272,7 @@ def create_app(engine, store, *, program_store, settings_path, logs_dir, port=PO
     preset_lock = threading.Lock()
     capture_lock = threading.Lock()
     program_lock = threading.Lock()  # one confirmation box at a time, and one writer of programs.json
-    ask_person = confirm or confirm_box.ask_program
+    ask_person = confirm or confirm_box.ask_change
 
     @app.exception_handler(ApiError)
     async def api_error(request, exc):
@@ -390,10 +392,36 @@ def create_app(engine, store, *, program_store, settings_path, logs_dir, port=PO
             raise ApiError(409, "busy")
         return {"started": True}
 
-    # -- programs: the allow-list of what a `run` step may start --
+    # -- programs: the allow-list of what an `app` step may open (programs and app links) --
 
-    def program_view(name, program):
-        return {"name": name, "path": program["path"], "args": program["args"]}
+    def program_view(name, entry):
+        return {"name": name, **entry}
+
+    def users_of(name):
+        """The presets that have an `app` step for this entry."""
+        return [
+            preset_name
+            for preset_name, preset in engine.presets.items()
+            if any(a["type"] == "app" and a["name"] == name for a in preset["actions"])
+        ]
+
+    def check_entry(entry):
+        """The things a model cannot know: an exe has to exist. Raises before any box is shown."""
+        if entry["kind"] == "exe" and not os.path.isfile(os.path.expandvars(entry["path"])):
+            raise ApiError(422, "invalid", [{"field": "path", "message": "file not found"}])
+
+    def confirmed(name, old, entry):
+        """Ask the person at the PC; nothing is saved without a Yes. Raises 403 on No / no answer."""
+        old_view = None if old is None else describe(old)
+        answer = ask_person(name, old_view, describe(entry), users_of(name))
+        if answer != confirm_box.YES:
+            raise ApiError(403, "declined" if answer == confirm_box.NO else "no_answer")
+
+    def save_programs(programs):
+        try:
+            program_store.save(programs)
+        except OSError:
+            raise ApiError(500, "could_not_save") from None
 
     @app.get("/api/programs")
     def list_programs():
@@ -401,52 +429,68 @@ def create_app(engine, store, *, program_store, settings_path, logs_dir, port=PO
 
     @app.post("/api/programs", status_code=201)
     def add_program(body: ProgramCreate):
-        """Add a program. The person at the PC must say Yes in a box on the desktop: nothing is saved
+        """Add an app. The person at the PC must say Yes in a box on the desktop: nothing is saved
         without it, whoever (or whatever page) sent this request."""
-        program = {"path": body.path, "args": body.args}
-        real, args = describe(program)
-        if not os.path.isfile(os.path.expandvars(body.path)):
-            raise ApiError(422, "invalid", [{"field": "path", "message": "file not found"}])
+        entry = body.model_dump(exclude={"name"})
+        check_entry(entry)
         if body.name in program_store.programs:
             raise ApiError(409, "exists", [{"field": "name", "message": "a program with this name already exists"}])
         if not program_lock.acquire(blocking=False):
             raise ApiError(409, "busy")  # a confirmation box is already open
         try:
-            answer = ask_person(body.name, real, args)
-            if answer != confirm_box.YES:
-                raise ApiError(403, "declined" if answer == confirm_box.NO else "no_answer")
+            confirmed(body.name, None, entry)
             programs = copy.deepcopy(program_store.programs)
             if body.name in programs:
                 raise ApiError(409, "exists", [{"field": "name", "message": "a program with this name already exists"}])
-            programs[body.name] = program
-            try:
-                program_store.save(programs)
-            except OSError:
-                raise ApiError(500, "could_not_save") from None
+            programs[body.name] = entry
+            save_programs(programs)
         finally:
             program_lock.release()
         return {"name": body.name}
 
+    @app.put("/api/programs/{name}")
+    def change_program(name: Annotated[str, Path(pattern=NAME_PATTERN)], body: Program):
+        """Change an app (path, arguments or link). The box shows the old value next to the new one;
+        No or no answer in time leaves it exactly as it was. Presets that use it keep working."""
+        entry = body.model_dump()
+        old = program_store.programs.get(name)
+        if old is None:
+            raise ApiError(404, "not_found")
+        check_entry(entry)
+        if entry == old:
+            return {"name": name, "changed": False}  # nothing to approve
+        if not program_lock.acquire(blocking=False):
+            raise ApiError(409, "busy")
+        try:
+            old = program_store.programs.get(name)  # it may have changed while we waited for the lock
+            if old is None:
+                raise ApiError(404, "not_found")
+            confirmed(name, old, entry)
+            programs = copy.deepcopy(program_store.programs)
+            programs[name] = entry
+            save_programs(programs)
+        finally:
+            program_lock.release()
+        return {"name": name, "changed": True}
+
     @app.delete("/api/programs/{name}")
     def delete_program(name: Annotated[str, Path(pattern=NAME_PATTERN)]):
-        """Removing a program only shrinks the allow-list, so it needs no confirmation. A program that a
-        preset still uses stays: Jarvis would refuse to start with a preset that names a missing program."""
-        with program_lock:
+        """Removing an app only shrinks the allow-list, so it needs no confirmation. One that a preset
+        still uses stays (409, naming the presets): Jarvis would refuse to start with a preset that names
+        a missing app."""
+        if not program_lock.acquire(blocking=False):
+            raise ApiError(409, "busy")  # a confirmation box is open: answer it first
+        try:
             programs = copy.deepcopy(program_store.programs)
             if name not in programs:
                 raise ApiError(404, "not_found")
-            users = [
-                preset_name
-                for preset_name, preset in engine.presets.items()
-                if any(a["type"] == "run" and a["program"] == name for a in preset["actions"])
-            ]
+            users = users_of(name)
             if users:
-                raise ApiError(409, "in_use", [{"field": "name", "message": f"in use by preset '{users[0]}'"}])
+                raise ApiError(409, "in_use", [{"field": "name", "message": "in use by preset " + ", ".join(f"'{u}'" for u in users)}])
             del programs[name]
-            try:
-                program_store.save(programs)
-            except OSError:
-                raise ApiError(500, "could_not_save") from None
+            save_programs(programs)
+        finally:
+            program_lock.release()
         return {"name": name}
 
     @app.get("/api/action-types")

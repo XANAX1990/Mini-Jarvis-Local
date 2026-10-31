@@ -4,8 +4,9 @@ Structural rules live here (types, lengths, absolute paths, URL and URI schemes)
 exists, and which files `open` may touch, is checked separately (`open_problems`), only when a preset is
 saved from the web: an app that was uninstalled must not stop Jarvis from starting.
 
-A `run` step never carries a path or arguments: it names a program from programs.json (an allow-list the
-web can only extend after a Yes/No box on the desktop, see confirm.py).
+An `app` step never carries a path, arguments or a link: it names an entry of programs.json, an allow-list
+of programs (.exe plus fixed arguments) and app links (roblox:, discord:, ...) that the web can only extend
+or change after a Yes/No box on the desktop (see confirm.py).
 """
 import os
 import re
@@ -57,9 +58,10 @@ def _absolute(value):
     return value
 
 
-class Program(_Model):
-    """An entry of programs.json: what a `run` step may start. Added from the web only after a confirmation."""
+class ExeProgram(_Model):
+    """An entry of programs.json that starts a program with fixed arguments."""
 
+    kind: Literal["exe"]
     path: StrictStr = Field(min_length=1, max_length=500)
     args: list[Annotated[StrictStr, Field(max_length=500)]] = Field(default_factory=list, max_length=20)
 
@@ -77,13 +79,43 @@ class Program(_Model):
         return value
 
 
-class ProgramCreate(Program):
+class UriProgram(_Model):
+    """An entry of programs.json that opens an app link (roblox:, discord:, ...), stored in full."""
+
+    kind: Literal["uri"]
+    uri: StrictStr = Field(min_length=1, max_length=500)
+
+    @field_validator("uri")
+    @classmethod
+    def _scheme(cls, value):
+        # The second layer: these schemes are refused outright, whoever asks and whatever the person clicks.
+        _clean(value)
+        found = URI_SCHEME.match(value)
+        if not found:
+            raise ValueError("must start with a scheme such as discord:")
+        scheme = found.group()[:-1].lower()
+        if scheme in BLOCKED_URI_SCHEMES or scheme.startswith("ms-"):
+            raise ValueError(f"the '{scheme}:' scheme is not allowed")
+        return value
+
+
+Program = Annotated[Union[ExeProgram, UriProgram], Field(discriminator="kind")]
+
+
+class ExeProgramCreate(ExeProgram):
     name: Name
 
 
-class RunAction(_Model):
-    type: Literal["run"]
-    program: Name  # a key of programs.json; a path or args here are refused (extra fields are forbidden)
+class UriProgramCreate(UriProgram):
+    name: Name
+
+
+ProgramCreate = Annotated[Union[ExeProgramCreate, UriProgramCreate], Field(discriminator="kind")]
+
+
+class AppAction(_Model):
+    type: Literal["app"]
+    name: Name  # a key of programs.json; a path, args or a link here are refused (extra fields are forbidden)
 
 
 class OpenAction(_Model):
@@ -99,23 +131,6 @@ class OpenAction(_Model):
     @classmethod
     def _absolute_target(cls, value):
         return _absolute(value)
-
-
-class UriAction(_Model):
-    type: Literal["uri"]
-    target: StrictStr = Field(min_length=1, max_length=500)
-
-    @field_validator("target")
-    @classmethod
-    def _scheme(cls, value):
-        _clean(value)
-        found = URI_SCHEME.match(value)
-        if not found:
-            raise ValueError("must start with a scheme such as discord:")
-        scheme = found.group()[:-1].lower()
-        if scheme in BLOCKED_URI_SCHEMES or scheme.startswith("ms-"):
-            raise ValueError(f"the '{scheme}:' scheme is not allowed")
-        return value
 
 
 class ChromeAction(_Model):
@@ -145,7 +160,7 @@ class SpendingAction(_Model):
 
 
 Action = Annotated[
-    Union[RunAction, OpenAction, UriAction, ChromeAction, WaitAction, SpendingAction],
+    Union[AppAction, OpenAction, ChromeAction, WaitAction, SpendingAction],
     Field(discriminator="type"),
 ]
 
@@ -169,14 +184,12 @@ class PresetCreate(Preset):
 
 
 # What the web editor builds its form from (GET /api/action-types): a new type needs one entry here.
-# field kinds: path | text | text-list | number | choice | program (a name from GET /api/programs)
+# field kinds: path | text | text-list | number | choice | program (an entry of GET /api/programs)
 ACTION_TYPES = [
-    {"type": "run", "label": "เปิดโปรแกรม", "fields": [
-        {"name": "program", "kind": "program", "required": True}]},
+    {"type": "app", "label": "เปิดแอป", "fields": [
+        {"name": "name", "kind": "program", "required": True}]},
     {"type": "open", "label": "เปิดไฟล์/โฟลเดอร์", "fields": [
         {"name": "target", "kind": "path", "required": True}]},
-    {"type": "uri", "label": "ลิงก์แอป", "fields": [
-        {"name": "target", "kind": "text", "required": True}]},
     {"type": "chrome", "label": "Chrome", "fields": [
         {"name": "urls", "kind": "text-list", "required": True}]},
     {"type": "wait", "label": "รอ", "fields": [
@@ -187,11 +200,11 @@ ACTION_TYPES = [
 
 
 def unknown_programs(preset, programs):
-    """(field, message) for each `run` step that names a program that is not in programs.json."""
+    """(field, message) for each `app` step that names an entry that is not in programs.json."""
     return [
-        (f"actions.{i}.program", "unknown program")
+        (f"actions.{i}.name", "unknown program")
         for i, action in enumerate(preset.actions)
-        if action.type == "run" and action.program not in programs
+        if action.type == "app" and action.name not in programs
     ]
 
 

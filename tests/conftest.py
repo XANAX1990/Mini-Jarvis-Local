@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from jarvis import __main__ as app
+from jarvis.programs import Migration
 
 ROOT = Path(__file__).resolve().parent.parent
 OWNERS_FILES = [ROOT / "presets.json", ROOT / "programs.json", ROOT / "settings.json"]
@@ -37,7 +38,7 @@ def quiet_main(monkeypatch):
     Every test gets this; a test that wants other behaviour patches the same names itself."""
     monkeypatch.setattr(app, "ensure_presets_file", lambda: False)
     monkeypatch.setattr(app, "ensure_programs_file", lambda: False)
-    monkeypatch.setattr(app, "migrate_legacy_runs", lambda *a, **k: [])
+    monkeypatch.setattr(app, "migrate_legacy_steps", lambda *a, **k: Migration())
     monkeypatch.setattr(app, "ProgramStore", NoStore)
     monkeypatch.setattr(app, "load_presets", lambda *a, **k: {"game": {"phrases": ["เปิดโหมดเกม"]}})
     return app

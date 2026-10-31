@@ -20,6 +20,8 @@ from rapidfuzz import fuzz
 from starlette.datastructures import Headers, MutableHeaders
 
 from jarvis import log as jarvis_log
+from jarvis.audio import AudioError
+from jarvis.engine import Refused
 from jarvis.matcher import normalize
 from jarvis.models import ACTION_TYPES, NAME_PATTERN, Name, Preset, PresetCreate, missing_paths
 from jarvis.presets import PresetError
@@ -401,6 +403,16 @@ def create_app(engine, store, *, settings_path, logs_dir, port=PORT, dev=False, 
         engine.update_settings(new)
         return new.to_dict()
 
+    @app.post("/api/mic/test")
+    def mic_test():
+        # listens for 3 s because the person clicked the button; keeps nothing
+        try:
+            return engine.mic_test()
+        except Refused as e:
+            raise ApiError(409, e.reason) from None
+        except AudioError:
+            raise ApiError(503, "no_microphone") from None
+
     @app.post("/api/hotkey/capture")
     def capture_hotkey():
         if not capture_lock.acquire(blocking=False):
@@ -410,8 +422,8 @@ def create_app(engine, store, *, settings_path, logs_dir, port=PORT, dev=False, 
             combo = engine.capture_hotkey(lambda: run(CAPTURE_SECONDS))
         finally:
             capture_lock.release()
-        if combo is None:
-            raise ApiError(408, "timeout")
+        if combo is None:  # not an HTTP error: browsers may retry a 408 by themselves
+            return {"hotkey": None, "ok": False, "reason": "timeout"}
         hotkey, reason = validate_hotkey(combo)
         return {"hotkey": hotkey or combo, "ok": reason is None, "reason": reason}
 

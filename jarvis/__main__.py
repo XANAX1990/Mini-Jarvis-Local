@@ -132,6 +132,7 @@ def cmd_listen(args, presets):
         hotkeys=Hotkeys(),
         build_prompt=stt.build_prompt,
         wait_speaking=speaker.wait,
+        record_fixed=audio.record_fixed,
     )
     web = None
     if not args.no_web:

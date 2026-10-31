@@ -83,3 +83,28 @@ def analyze(samples, **kwargs):
     detector = EndpointDetector(**kwargs)
     result = detector.feed(samples)
     return result, detector.frames
+
+
+def analyze_levels(samples, min_threshold=0.01):
+    """Levels of a mic-test clip, so a person can see whether auto-stop will work in their room.
+
+    Uses the same rules as the detector: the noise floor is the first 300 ms, the threshold is
+    max(min_threshold, noise x 2.5), speech is 3 loud frames in a row after that."""
+    samples = np.asarray(samples, dtype=np.float32)
+    count = len(samples) // FRAME_SAMPLES
+    levels = [frame_level(samples[i * FRAME_SAMPLES : (i + 1) * FRAME_SAMPLES]) for i in range(count)]
+    if len(levels) <= CALIBRATION_FRAMES:
+        return {"peak": 0.0, "level": 0.0, "noise": 0.0, "threshold": min_threshold, "detects_speech": False}
+    noise = sum(levels[:CALIBRATION_FRAMES]) / CALIBRATION_FRAMES
+    threshold = max(min_threshold, noise * NOISE_FACTOR)
+    run = longest = 0
+    for level in levels[CALIBRATION_FRAMES:]:
+        run = run + 1 if level > threshold else 0
+        longest = max(longest, run)
+    return {
+        "peak": round(float(np.max(np.abs(samples))), 4),
+        "level": round(max(levels), 4),  # the loudest 30 ms frame
+        "noise": round(noise, 4),
+        "threshold": round(threshold, 4),
+        "detects_speech": longest >= START_FRAMES,
+    }

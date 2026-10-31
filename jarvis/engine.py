@@ -9,22 +9,32 @@ Speech only selects a preset by name: the transcript goes to the matcher and now
 import queue
 import threading
 import time
+from concurrent.futures import Future
 
 from jarvis.audio import STOPPED, is_long_enough
 from jarvis.presets import get_preset
-from jarvis.vad import NO_SPEECH
+from jarvis.vad import NO_SPEECH, analyze_levels
 
 OFF, IDLE, LISTENING, TRANSCRIBING, RUNNING = "off", "idle", "listening", "transcribing", "running"
 SOURCES = ("hotkey", "web", "test")
 HOTKEY_DEBOUNCE_SECONDS = 0.4  # a held key repeats; one press must toggle once
 NO_SPEECH_REPLY = "ไม่ได้ยิน"
 NO_MATCH_REPLY = "ไม่เข้าใจ"
+MIC_TEST_SECONDS = 3.0
+
+
+class Refused(Exception):
+    """A command that cannot run now. `reason` is off | busy | unavailable."""
+
+    def __init__(self, reason):
+        super().__init__(reason)
+        self.reason = reason
 
 
 class Engine:
     def __init__(self, presets, settings, *, record, transcribe, match, run_preset, spoken_reply,
-                 speak, beep, log_command, hotkeys, build_prompt, wait_speaking=lambda: None, log=print,
-                 clock=time.monotonic):
+                 speak, beep, log_command, hotkeys, build_prompt, wait_speaking=lambda: None, record_fixed=None,
+                 log=print, clock=time.monotonic):
         self._presets = presets
         self._build_prompt = build_prompt
         self._prompt = build_prompt(presets)
@@ -34,6 +44,7 @@ class Engine:
         self._speak, self._beep, self._log_command = speak, beep, log_command
         self._hotkeys = hotkeys
         self._wait_speaking = wait_speaking
+        self._record_fixed = record_fixed
         self._log = log
         self._clock = clock
         self._lock = threading.RLock()
@@ -126,6 +137,22 @@ class Engine:
         self._jobs.put(("run", name, source))
         return True
 
+    def mic_test(self, seconds=MIC_TEST_SECONDS):
+        """Record a few seconds and return the levels (see vad.analyze_levels). Blocks until done.
+
+        Refused while the master switch is off or Jarvis is busy. Nothing is saved."""
+        if self._record_fixed is None:
+            raise Refused("unavailable")
+        with self._lock:
+            if not self._armed:
+                raise Refused("off")
+            if self._phase != IDLE:
+                raise Refused("busy")
+            self._phase = LISTENING
+        future = Future()
+        self._jobs.put(("mic", seconds, future))
+        return future.result(timeout=seconds + 10)
+
     def update_settings(self, settings):
         """Apply new settings now; the hotkey is re-registered if it changed."""
         with self._lock:
@@ -199,6 +226,9 @@ class Engine:
             job = self._jobs.get()
             if job is None:
                 return
+            if job[0] == "mic":
+                self._do_mic(job[1], job[2])
+                continue
             source = job[-1]
             try:
                 if job[0] == "listen":
@@ -208,6 +238,17 @@ class Engine:
             except Exception as e:  # keep the worker alive; the browser never sees exception text
                 self._log(f"command failed: {type(e).__name__}: {e}")
                 self._finish(self._record_result(source, "", None, None, "error", 0.0))
+
+    def _do_mic(self, seconds, future):
+        try:
+            self._wait_speaking()
+            result = analyze_levels(self._record_fixed(seconds), self._settings.min_threshold)
+        except Exception as e:  # the caller decides what to tell the browser
+            self._finish(self._last)
+            future.set_exception(e)
+            return
+        self._finish(self._last)  # idle again before the caller hears back
+        future.set_result(result)
 
     def _do_listen(self, source):
         started = self._clock()

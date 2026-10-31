@@ -7,6 +7,7 @@ from jarvis.vad import (
     SPEECH_DONE,
     EndpointDetector,
     analyze,
+    analyze_levels,
 )
 
 
@@ -85,3 +86,29 @@ def test_result_is_final():
     d = EndpointDetector()
     d.feed(quiet(300))
     assert d.feed(loud(50)) == NO_SPEECH
+
+
+def test_levels_of_a_quiet_room_with_speech():
+    levels = analyze_levels(np.concatenate([quiet(10, 0.004), loud(10, 0.2)]), min_threshold=0.01)
+    assert levels["noise"] == 0.004 and levels["threshold"] == 0.01
+    assert levels["level"] == 0.2 and levels["peak"] == 0.2
+    assert levels["detects_speech"] is True
+
+
+def test_levels_when_nobody_speaks():
+    levels = analyze_levels(quiet(60, 0.003))
+    assert levels["detects_speech"] is False and levels["level"] < levels["threshold"]
+
+
+def test_levels_in_a_noisy_room_raise_the_threshold():
+    levels = analyze_levels(quiet(60, 0.08), min_threshold=0.01)
+    assert abs(levels["threshold"] - 0.2) < 1e-6 and levels["detects_speech"] is False
+
+
+def test_two_loud_frames_are_not_enough_in_a_mic_test_either():
+    assert analyze_levels(np.concatenate([quiet(10), loud(2), quiet(30)]))["detects_speech"] is False
+
+
+def test_levels_of_a_clip_shorter_than_the_calibration():
+    assert analyze_levels(quiet(5))["detects_speech"] is False
+    assert analyze_levels(np.zeros(0))["peak"] == 0.0

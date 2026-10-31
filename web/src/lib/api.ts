@@ -124,3 +124,40 @@ export const replacePreset = (name: string, body: PresetBody) =>
   request<{ name: string; warnings: PhraseWarning[] }>("PUT", presetUrl(name), body);
 export const deletePreset = (name: string) => request<{ name: string }>("DELETE", presetUrl(name));
 export const testPreset = (name: string) => request<{ started: boolean }>("POST", `${presetUrl(name)}/test`);
+
+// ---- logs: add a heard line as a phrase ----
+
+export const getLogDates = () => request<{ dates: string[] }>("GET", "/api/logs/dates");
+export const addPhrase = (entryId: string, preset: string) =>
+  request<{ name: string; warnings: PhraseWarning[]; added: boolean }>("POST", `/api/logs/${encodeURIComponent(entryId)}/add-phrase`, { preset });
+
+// ---- settings, hotkey, mic test ----
+
+export interface SettingsData {
+  hotkey: string;
+  armed_on_start: boolean;
+  silence_ms: number;
+  min_threshold: number;
+  max_seconds: number;
+  beep: boolean;
+  match_threshold: number;
+}
+
+export interface HotkeyCapture {
+  hotkey: string | null; // null: no key was pressed in time (reason "timeout")
+  ok: boolean;
+  reason: string | null;
+}
+
+export interface MicLevels {
+  peak: number;
+  level: number; // the loudest 30 ms frame, 0..1
+  noise: number;
+  threshold: number;
+  detects_speech: boolean;
+}
+
+export const getSettings = () => request<SettingsData>("GET", "/api/settings");
+export const putSettings = (changes: Partial<SettingsData>) => request<SettingsData>("PUT", "/api/settings", changes);
+export const captureHotkey = () => request<HotkeyCapture>("POST", "/api/hotkey/capture");
+export const micTest = () => request<MicLevels>("POST", "/api/mic/test");

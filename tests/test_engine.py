@@ -40,6 +40,8 @@ class Rig:
         self.hold_mic = False
         self.outcome, self.samples, self.text, self.score = outcome, samples, text, score
         self.match_name, self.failures = match_name, failures
+        self.mic_samples = np.concatenate([np.full(4800, 0.002, dtype=np.float32), np.full(24000, 0.2, dtype=np.float32)])
+        self.mic_calls = []
         self.engine = Engine(
             presets or PRESETS,
             settings or Settings(),
@@ -53,8 +55,13 @@ class Rig:
             log_command=self.log_command,
             hotkeys=self.hotkeys,
             build_prompt=lambda presets: " ".join(p for v in presets.values() for p in v["phrases"]),
+            record_fixed=self.record_fixed,
             log=lambda *_: None,
         )
+
+    def record_fixed(self, seconds):
+        self.mic_calls.append(seconds)
+        return self.mic_samples
 
     def record(self, stop_event, settings):
         self.events.append("record")
@@ -358,4 +365,78 @@ def test_the_mic_waits_for_the_spoken_reply_to_finish():
     r.tap()
     assert r.engine.wait_idle()
     assert r.events[:2] == ["wait-speaking", "beep-start"]
+    r.engine.close()
+
+
+# ---- mic test ----
+
+def test_mic_test_reports_the_levels_and_leaves_no_trace():
+    r = Rig()
+    r.engine.set_armed(True)
+    result = r.engine.mic_test()
+    assert r.mic_calls == [3.0]
+    assert result["detects_speech"] is True and result["level"] > result["threshold"] > result["noise"]
+    assert r.engine.state == "idle" and r.logged == [] and r.engine.last is None
+    r.engine.close()
+
+
+def test_mic_test_is_refused_while_off_or_busy_or_unavailable():
+    from jarvis.engine import Refused
+
+    r = Rig()
+    with pytest.raises(Refused) as off:
+        r.engine.mic_test()
+    assert off.value.reason == "off" and r.mic_calls == []
+    r.engine.set_armed(True)
+    r.hold_mic = True
+    r.tap()
+    assert r.recording.wait(2)
+    with pytest.raises(Refused) as busy:
+        r.engine.mic_test()
+    assert busy.value.reason == "busy"
+    r.release.set()
+    assert r.engine.wait_idle()
+    r.engine._record_fixed = None
+    with pytest.raises(Refused) as none:
+        r.engine.mic_test()
+    assert none.value.reason == "unavailable"
+    r.engine.close()
+
+
+def test_mic_test_blocks_other_commands_while_it_records_and_waits_for_speech_to_end():
+    gate = threading.Event()
+    started = threading.Event()
+    r = Rig()
+    r.engine._wait_speaking = lambda: r.events.append("wait-speaking")
+
+    def slow(seconds):
+        started.set()
+        gate.wait(2)
+        return r.mic_samples
+
+    r.engine._record_fixed = slow
+    r.engine.set_armed(True)
+    out = []
+    t = threading.Thread(target=lambda: out.append(r.engine.mic_test()))
+    t.start()
+    assert started.wait(2)
+    assert r.engine.state == "listening"
+    assert r.engine.run_preset("game") is False
+    gate.set()
+    t.join(3)
+    assert out and r.events == ["wait-speaking"]
+    r.engine.close()
+
+
+def test_a_failing_mic_test_raises_and_frees_the_engine():
+    r = Rig()
+
+    def broken(seconds):
+        raise RuntimeError("no device")
+
+    r.engine._record_fixed = broken
+    r.engine.set_armed(True)
+    with pytest.raises(RuntimeError):
+        r.engine.mic_test()
+    assert r.engine.state == "idle"
     r.engine.close()

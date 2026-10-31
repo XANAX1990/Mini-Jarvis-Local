@@ -13,19 +13,29 @@ const EXACT: Record<string, string> = {
   "a preset with this name already exists": "มี preset ชื่อนี้อยู่แล้ว",
   "at least one preset must remain": "ต้องเหลือ preset อย่างน้อย 1 อัน",
   "Field required": "ต้องกรอก",
+  "this key name is not recognized": "ระบบไม่รู้จักปุ่มนี้",
+  "use one key or a combo like ctrl+alt+j": "ใช้ปุ่มเดียว หรือคอมโบ เช่น ctrl+alt+j",
+  "in a combo, every key before the last must be ctrl, alt, shift or windows": "ในคอมโบ ปุ่มก่อนปุ่มสุดท้ายต้องเป็น ctrl, alt, shift หรือ windows",
+  "hotkey must be text": "ปุ่มลัดต้องเป็นข้อความ",
 };
 
 export function thaiError(message: string): string {
   if (EXACT[message]) return EXACT[message];
   const used = /^'(.*)' is already used by preset '(.*)'$/.exec(message);
   if (used) return `วลี "${used[1]}" ถูกใช้ใน preset "${used[2]}" แล้ว ใช้ซ้ำกันไม่ได้`;
+  const typing = /^'(.*)' is a typing key: use it with a modifier, e\.g\. (.*)$/.exec(message);
+  if (typing) return `"${typing[1]}" เป็นปุ่มพิมพ์ ใช้เดี่ยว ๆ ไม่ได้ (จะพิมพ์ไม่ออก) ลองใช้คู่กับ Ctrl/Alt เช่น ${typing[2]}`;
+  if (message.startsWith("a combo must end with a normal key")) return "คอมโบต้องลงท้ายด้วยปุ่มปกติ เช่น ctrl+alt+j";
   const scheme = /^the '(.*)' scheme is not allowed$/.exec(message);
   if (scheme) return `ไม่อนุญาตลิงก์ชนิด ${scheme[1]} (ไม่ปลอดภัย)`;
   const longer = /at most (\d+) (character|item)/.exec(message);
   if (longer) return `ยาวเกินไป (สูงสุด ${longer[1]})`;
   if (/at least 1 (character|item)/.test(message)) return "ต้องกรอกอย่างน้อย 1 รายการ";
-  const range = /greater than or equal to (\d+)|less than or equal to (\d+)/.exec(message);
-  if (range) return `ค่าต้องอยู่ระหว่าง 0 ถึง 30`;
+  const low = /greater than or equal to ([\d.]+)/.exec(message);
+  if (low) return `ค่าต้องไม่น้อยกว่า ${low[1]}`;
+  const high = /less than or equal to ([\d.]+)/.exec(message);
+  if (high) return `ค่าต้องไม่เกิน ${high[1]}`;
+  if (/valid integer/.test(message)) return "ต้องเป็นจำนวนเต็ม";
   return message;
 }
 
@@ -40,6 +50,10 @@ const FIELD_NAME: Record<string, string> = {
   urls: "ลิงก์",
   seconds: "วินาที",
   period: "ช่วงเวลา",
+  hotkey: "ปุ่มลัด",
+  silence_ms: "เวลาเงียบก่อนหยุด",
+  max_seconds: "ฟังนานสุด",
+  match_threshold: "ความมั่นใจขั้นต่ำ",
 };
 
 /** "actions.1.path" -> "ขั้นตอนที่ 2 · ไฟล์" */

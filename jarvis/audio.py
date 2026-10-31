@@ -103,6 +103,19 @@ def record_until_silence(stop_event, settings):
     return (np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)), outcome
 
 
+def record_fixed(seconds):
+    """Record exactly `seconds` from the default mic (the mic test). Nothing is saved."""
+    import sounddevice as sd
+
+    _check_microphone(sd)
+    try:
+        with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32") as stream:
+            data, _ = stream.read(int(seconds * SAMPLE_RATE))
+    except sd.PortAudioError as e:
+        raise AudioError(f"could not open the microphone: {e}") from None
+    return data[:, 0].copy()
+
+
 def beep(kind):
     """'start' (high, short) or 'stop' (lower). Blocks until played; 'start' also lets the speaker
     tail die out so the beep is not recorded."""

@@ -93,7 +93,7 @@ The first run of `listen` downloads the Whisper model (a few hundred MB) from Hu
 
 ### Web UI
 
-Build it once, then open `http://127.0.0.1:3003` while `listen` is running: `cd web && npm ci && npm run build`. The home page has a mic button (click to talk, click again to stop early), the "Jarvis ฟังอยู่" master switch, the last command and today's last 5 log lines. **Presets** (`/presets/`) lists every preset and edits them without touching JSON: phrases as tags, an ordered list of steps built from `/api/action-types`, move up/down, delete, **ทดสอบ** (runs the saved preset without speaking) and a confirm before delete. Saving takes effect at once, no restart. If `web/out/` is missing, `/` says to run the build. More in [web/README.md](web/README.md).
+Build it once, then open `http://127.0.0.1:3003` while `listen` is running: `cd web && npm ci && npm run build`. The home page has a mic button (click to talk, click again to stop early), the "Jarvis ฟังอยู่" master switch, the last command and today's last 5 log lines. **Presets** (`/presets/`) lists every preset and edits them without touching JSON: phrases as tags, an ordered list of steps built from `/api/action-types`, move up/down, delete, **ทดสอบ** (runs the saved preset without speaking) and a confirm before delete. Saving takes effect at once, no restart. **Log** (`/log/`) shows a day's commands (day picker, result filter) and turns a misheard line into a phrase of a preset with "เพิ่มเป็นวลี". **ตั้งค่า** (`/settings/`) sets the hotkey (press the new key within 10 s), the silence/max-seconds/match thresholds and the beep, applied without a restart, plus a 3-second mic test that shows the loudest level against the speech threshold. If `web/out/` is missing, `/` says to run the build. More in [web/README.md](web/README.md).
 
 ### Local API (`listen` starts it; `--no-web` skips it)
 
@@ -104,7 +104,7 @@ curl.exe http://127.0.0.1:3003/api/state
 curl.exe -X POST http://127.0.0.1:3003/api/armed -H "Content-Type: application/json" -H "X-Jarvis: 1" -H "Origin: http://127.0.0.1:3003" -d "{\"armed\": false}"
 ```
 
-Endpoints: `state`, `armed`, `listen/toggle`, `presets` (+ `PUT`/`DELETE` `{name}`, `{name}/test`), `action-types`, `logs` (+ `dates`, `{id}/add-phrase`), `settings`, `hotkey/capture`. Presets saved from the web are validated (known action types, absolute `.exe` paths that exist, `http(s)` URLs, no `file:`/`ms-*` URIs) and written atomically, keeping `presets.json.bak`. Non-ASCII text in `curl.exe` must go through a UTF-8 file (`--data-binary @body.json`).
+Endpoints: `state`, `armed`, `listen/toggle`, `presets` (+ `PUT`/`DELETE` `{name}`, `{name}/test`), `action-types`, `logs` (+ `dates`, `{id}/add-phrase`), `settings`, `hotkey/capture`, `mic/test` (records 3 s on request, keeps nothing). Presets saved from the web are validated (known action types, absolute `.exe` paths that exist, `http(s)` URLs, no `file:`/`ms-*` URIs) and written atomically, keeping `presets.json.bak`. Non-ASCII text in `curl.exe` must go through a UTF-8 file (`--data-binary @body.json`).
 
 ### Ask how much you spent
 

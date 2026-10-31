@@ -470,7 +470,8 @@ def test_hotkey_capture_says_why_a_key_is_refused(tmp_path):
 
 def test_hotkey_capture_timeout(tmp_path):
     e = Env(tmp_path, capture=lambda seconds: None)
-    assert e.post("/api/hotkey/capture").status_code == 408
+    r = e.post("/api/hotkey/capture")
+    assert r.status_code == 200 and r.json() == {"hotkey": None, "ok": False, "reason": "timeout"}
     e.engine.close()
 
 
@@ -602,3 +603,40 @@ def test_a_missing_file_and_a_duplicate_phrase_are_reported_together(env, tmp_pa
     r = env.post("/api/presets", {"name": "x", **env.new_preset(phrases=["เปิดโหมดเกม"], actions=[{"type": "run", "path": ghost}])})
     assert r.status_code == 422
     assert {f["field"] for f in r.json()["fields"]} == {"actions.0.path", "phrases"}
+
+
+# ---- mic test ----
+
+def test_mic_test_endpoint(env):
+    env.engine.set_armed(True)
+    r = env.post("/api/mic/test")
+    assert r.status_code == 200
+    assert set(r.json()) == {"peak", "level", "noise", "threshold", "detects_speech"}
+    assert env.rig.mic_calls == [3.0]
+    assert env.get("/api/state").json()["state"] == "idle"
+
+
+def test_mic_test_is_refused_while_the_master_switch_is_off(env):
+    r = env.post("/api/mic/test")
+    assert r.status_code == 409 and r.json()["error"] == "off"
+    assert env.rig.mic_calls == []
+
+
+def test_mic_test_needs_the_same_headers_as_any_post(env):
+    env.engine.set_armed(True)
+    assert env.post("/api/mic/test", headers={"Origin": "http://127.0.0.1:3003"}).status_code == 403
+    assert env.client.get("/api/mic/test").status_code == 405 or env.client.get("/api/mic/test").status_code == 404
+    assert env.rig.mic_calls == []
+
+
+def test_a_missing_microphone_is_a_short_503(env):
+    from jarvis.audio import AudioError
+
+    def broken(seconds):
+        raise AudioError("no microphone found at C:/secret/device")
+
+    env.engine._record_fixed = broken
+    env.engine.set_armed(True)
+    r = env.post("/api/mic/test")
+    assert r.status_code == 503 and r.json() == {"error": "no_microphone", "fields": []}
+    assert "secret" not in r.text

@@ -1,7 +1,7 @@
 """Only one `listen` at a time.
 
 With no console window (pythonw) it's easy to start Jarvis twice, and then two
-listeners react to the same F9 press and launch every preset twice. A Windows
+listeners react to the same hotkey press and launch every preset twice. A Windows
 named mutex is released by the OS when the process exits, even after a crash,
 so there is no stale lock file to clean up.
 """

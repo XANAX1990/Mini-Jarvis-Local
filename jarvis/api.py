@@ -38,10 +38,13 @@ MAX_WARNINGS = 20
 UUID_PATTERN = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 CAPTURE_SECONDS = 10
 WEB_DIR = FilePath(__file__).resolve().parent.parent / "web" / "out"
+# Home Base (the shell with the sidebar) is the one page allowed to show this app in a frame.
+# frame-ancestors replaces X-Frame-Options, which cannot allow one other origin, so that header is not sent.
+HOME_BASE_ORIGIN = "http://127.0.0.1:3010"
 # The static export inlines its bootstrap scripts, hence 'unsafe-inline'; nothing is loaded from elsewhere.
 CSP = (
     "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
-    "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+    f"img-src 'self' data:; connect-src 'self'; frame-ancestors 'self' {HOME_BASE_ORIGIN}; base-uri 'none'; form-action 'self'"
 )
 MISSING_WEB = (
     '<!doctype html><meta charset="utf-8"><title>Jarvis</title>'
@@ -124,7 +127,6 @@ class SecurityMiddleware:
             if message["type"] == "http.response.start":
                 headers = MutableHeaders(scope=message)
                 headers["X-Content-Type-Options"] = "nosniff"
-                headers["X-Frame-Options"] = "DENY"
                 headers["Referrer-Policy"] = "no-referrer"
                 if scope["path"].startswith("/api/"):
                     headers["Cache-Control"] = "no-store"

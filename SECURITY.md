@@ -43,6 +43,7 @@ Security rules and audit checklist for Jarvis (local Python voice launcher on Wi
   - `Origin` equal to `http://127.0.0.1:3003` or `http://localhost:3003` (plus `http://localhost:3004` only when `JARVIS_DEV=1`); missing or other → 403
   - `Content-Type: application/json`
 - [ ] **No CORS** in normal mode. In dev mode (`JARVIS_DEV=1`) allow only the exact origin `http://localhost:3004`, never `*`, never with credentials.
+- [ ] **Framing:** every page answers `Content-Security-Policy: frame-ancestors 'self' http://127.0.0.1:3010` (Home Base is the one other page allowed to show Jarvis in a frame). `X-Frame-Options` is not sent: it can't allow a second origin, and `frame-ancestors` replaces it. No wildcard, no `localhost` spelling. Checked by a header test.
 - [ ] GET endpoints never change anything (no "GET to run a preset").
 - [ ] Every request body is validated with pydantic (types, lengths, enums). Unknown fields are rejected.
 - [ ] Errors returned to the browser: short message + field name. No stack traces, file paths or exception text.

@@ -558,7 +558,10 @@ def test_web_pages_get_a_csp_and_revalidate_but_the_api_does_not(tmp_path):
     e = web_env(tmp_path)
     page = e.get("/")
     assert "default-src 'self'" in page.headers["content-security-policy"]
-    assert "frame-ancestors 'none'" in page.headers["content-security-policy"]
+    assert "frame-ancestors 'self' http://127.0.0.1:3010;" in page.headers["content-security-policy"]
+    assert page.headers["content-security-policy"].count("http") == 1  # Home Base is the only other origin named
+    # X-Frame-Options can't allow another origin and would win in some browsers, so it must be absent.
+    assert "x-frame-options" not in page.headers
     assert page.headers["cache-control"] == "no-cache"
     assert "content-security-policy" not in e.get("/api/state").headers
     e.engine.close()
